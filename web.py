@@ -3,6 +3,9 @@ Main Web Integration - Integrates all routers and modules
 集合router并开启主服务
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import asyncio
 from contextlib import asynccontextmanager
 
