@@ -23,10 +23,6 @@ const AppState = {
     uploadFiles: createUploadManager('normal'),
     antigravityUploadFiles: createUploadManager('antigravity'),
 
-    // 配置管理
-    currentConfig: {},
-    envLockedFields: new Set(),
-
     // 日志管理
     logWebSocket: null,
     allLogs: [],
@@ -755,7 +751,7 @@ async function autoLogin() {
     AppState.authToken = savedToken;
 
     try {
-        const response = await fetch('./config/get', {
+        const response = await fetch('./auth/verify', {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${AppState.authToken}`
@@ -921,10 +917,346 @@ function switchTab(tabName) {
 function triggerTabDataLoad(tabName) {
     if (tabName === 'manage') AppState.creds.refresh();
     if (tabName === 'antigravity-manage') AppState.antigravityCreds.refresh();
-    if (tabName === 'config') loadConfig();
     if (tabName === 'logs') connectWebSocket();
+    if (tabName === 'dashboard') loadDashboardData();
+    if (tabName === 'imports') loadImportsList();
 }
 
+
+// =====================================================================
+// Dashboard 相关函数
+// =====================================================================
+
+function formatDashNumber(val) {
+    if (val == null || val === undefined) return '-';
+    const num = Number(val);
+    if (isNaN(num)) return val;
+    return num.toLocaleString();
+}
+
+function formatCurrency(cents) {
+    if (cents == null) return '$0.00';
+    return '$' + (Number(cents) / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+function renderDashCards(containerId, items) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = items.map(item => {
+        const value = item.isCurrency ? formatCurrency(item.value) : formatDashNumber(item.value);
+        return `<div class="dash-card ${item.color || 'blue'}">
+            <span class="dash-value">${value}</span>
+            <span class="dash-label">${item.label}</span>
+        </div>`;
+    }).join('');
+}
+
+async function loadDashboardData() {
+    const loading = document.getElementById('dashboardLoading');
+    const content = document.getElementById('dashboardContent');
+    const errorDiv = document.getElementById('dashboardError');
+    const timeEl = document.getElementById('dashboardTime');
+
+    if (loading) loading.style.display = 'block';
+    if (content) content.style.display = 'none';
+    if (errorDiv) { errorDiv.style.display = 'none'; errorDiv.innerHTML = ''; }
+
+    try {
+        const resp = await fetch('./dashboard/stats', { headers: getAuthHeaders() });
+        const json = await resp.json();
+
+        if (!resp.ok || !json.ok) {
+            throw new Error(json.detail || 'Failed to load dashboard');
+        }
+
+        const d = json.data;
+
+        // Users
+        if (d.users && !d.users.error) {
+            renderDashCards('dashUsers', [
+                { label: 'Total', value: d.users.total_users, color: 'blue' },
+                { label: 'Today', value: d.users.today_users, color: 'green' },
+                { label: '7 Days', value: d.users.week_users, color: 'teal' },
+                { label: 'Paying', value: d.users.paying_users, color: 'orange' },
+                { label: 'Inviters', value: d.users.inviters, color: 'purple' },
+            ]);
+        }
+
+        // Revenue
+        if (d.revenue && !d.revenue.error) {
+            renderDashCards('dashRevenue', [
+                { label: 'Total Revenue', value: d.revenue.total_revenue, color: 'green', isCurrency: true },
+                { label: 'Today', value: d.revenue.today_revenue, color: 'green', isCurrency: true },
+                { label: '7 Days', value: d.revenue.week_revenue, color: 'teal', isCurrency: true },
+                { label: 'Recharge Pts', value: d.revenue.recharge_points, color: 'blue' },
+                { label: 'Consumed Pts', value: d.revenue.consumption_points, color: 'orange' },
+                { label: 'Invite Bonus', value: d.revenue.invite_bonus_points, color: 'purple' },
+            ]);
+        }
+
+        // Novels
+        if (d.novels && !d.novels.error) {
+            renderDashCards('dashNovels', [
+                { label: 'Total', value: d.novels.total_novels, color: 'blue' },
+                { label: 'Active', value: d.novels.active_novels, color: 'green' },
+                { label: 'Crowdfunding', value: d.novels.crowdfunding_novels, color: 'orange' },
+                { label: 'Importing', value: d.novels.importing_novels, color: 'teal' },
+                { label: 'New 7d', value: d.novels.new_novels_7d, color: 'purple' },
+                { label: 'Chapters', value: d.novels.total_chapters, color: 'blue' },
+                { label: 'Avg Ch/Novel', value: d.novels.avg_chapters_per_novel, color: 'gray' },
+                { label: 'CF Raised Keys', value: d.novels.cf_raised_keys, color: 'orange' },
+            ]);
+        }
+
+        // Engagement
+        if (d.engagement && !d.engagement.error) {
+            renderDashCards('dashEngagement', [
+                { label: 'Game Sessions', value: d.engagement.total_games, color: 'blue' },
+                { label: 'Active 7d', value: d.engagement.active_games_7d, color: 'green' },
+                { label: 'Total Msgs', value: d.engagement.total_messages, color: 'teal' },
+                { label: 'Today Msgs', value: d.engagement.today_messages, color: 'green' },
+                { label: 'Avg Msgs/Game', value: d.engagement.avg_msgs_per_game, color: 'gray' },
+            ]);
+        }
+
+        // Imports
+        if (d.imports && !d.imports.error) {
+            renderDashCards('dashImports', [
+                { label: 'Total', value: d.imports.total_imports, color: 'blue' },
+                { label: 'Completed', value: d.imports.completed_imports, color: 'green' },
+                { label: 'Processing', value: d.imports.processing_imports, color: 'teal' },
+                { label: 'Parsing', value: d.imports.parsing_imports, color: 'orange' },
+                { label: 'Error', value: d.imports.error_imports, color: 'red' },
+                { label: 'Waiting', value: d.imports.waiting_imports, color: 'gray' },
+            ]);
+        }
+
+        // API Keys
+        if (d.api_keys && !d.api_keys.error) {
+            renderDashCards('dashApiKeys', [
+                { label: 'Total', value: d.api_keys.total_keys, color: 'blue' },
+                { label: 'Disabled', value: d.api_keys.disabled_keys, color: 'red' },
+                { label: 'Success Reqs', value: d.api_keys.success_requests, color: 'green' },
+                { label: 'Failed Reqs', value: d.api_keys.failed_requests, color: 'orange' },
+            ]);
+        }
+
+        // Community
+        if (d.community && !d.community.error) {
+            renderDashCards('dashCommunity', [
+                { label: 'Comments', value: d.community.total_comments, color: 'blue' },
+                { label: 'Comments 7d', value: d.community.comments_7d, color: 'green' },
+                { label: 'Favorites', value: d.community.total_favorites, color: 'purple' },
+                { label: 'Contrib Keys', value: d.community.contribution_keys, color: 'orange' },
+            ]);
+        }
+
+        if (timeEl) timeEl.textContent = 'Updated: ' + new Date().toLocaleString();
+        if (content) content.style.display = 'block';
+
+    } catch (err) {
+        if (errorDiv) {
+            errorDiv.innerHTML = `<div class="dashboard-error">${err.message}</div>`;
+            errorDiv.style.display = 'block';
+        }
+    } finally {
+        if (loading) loading.style.display = 'none';
+    }
+}
+
+// =====================================================================
+// 导入任务管理
+// =====================================================================
+
+const importsState = {
+    currentPage: 1,
+    totalPages: 1,
+    pageSize: 20,
+    allItems: [],
+    currentFilter: ''
+};
+
+const IMPORT_STATUS_LABELS = {
+    parsing: '解析中',
+    processing: '处理中',
+    error: '错误',
+    completed: '已完成'
+};
+
+async function loadImportsList(page) {
+    if (page === undefined || page === null) page = 1;
+    if (page < 1) page = 1;
+
+    const loading = document.getElementById('importsLoading');
+    const errorDiv = document.getElementById('importsError');
+    const listDiv = document.getElementById('importsList');
+    const paginationDiv = document.getElementById('importsPagination');
+
+    if (loading) loading.style.display = 'block';
+    if (errorDiv) { errorDiv.style.display = 'none'; errorDiv.innerHTML = ''; }
+    if (listDiv) listDiv.innerHTML = '';
+    if (paginationDiv) paginationDiv.style.display = 'none';
+
+    try {
+        const resp = await fetch(`./novel/imports?page=${page}&page_size=${importsState.pageSize}`, {
+            headers: getAuthHeaders()
+        });
+        const json = await resp.json();
+
+        if (!resp.ok || json.code !== 200) {
+            throw new Error(json.message || json.detail || 'Failed to load imports');
+        }
+
+        const data = json.data;
+        importsState.allItems = data.items || [];
+        importsState.currentPage = data.page;
+        importsState.totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+
+        // Restore filter selection
+        const filterEl = document.getElementById('importsStatusFilter');
+        if (filterEl) importsState.currentFilter = filterEl.value;
+
+        renderImportsList();
+
+    } catch (err) {
+        if (errorDiv) {
+            errorDiv.innerHTML = `<div class="dashboard-error">${err.message}</div>`;
+            errorDiv.style.display = 'block';
+        }
+    } finally {
+        if (loading) loading.style.display = 'none';
+    }
+}
+
+function renderImportsList() {
+    const listDiv = document.getElementById('importsList');
+    const paginationDiv = document.getElementById('importsPagination');
+    if (!listDiv) return;
+
+    let items = importsState.allItems;
+    if (importsState.currentFilter) {
+        items = items.filter(item => item.status === importsState.currentFilter);
+    }
+
+    if (items.length === 0) {
+        listDiv.innerHTML = '<div class="imports-empty">暂无导入任务</div>';
+        if (paginationDiv) paginationDiv.style.display = 'none';
+        return;
+    }
+
+    listDiv.innerHTML = items.map(renderImportCard).join('');
+
+    // Pagination
+    if (paginationDiv) {
+        const prevBtn = document.getElementById('importsPrevBtn');
+        const nextBtn = document.getElementById('importsNextBtn');
+        const pageInfo = document.getElementById('importsPageInfo');
+
+        if (prevBtn) prevBtn.disabled = importsState.currentPage <= 1;
+        if (nextBtn) nextBtn.disabled = importsState.currentPage >= importsState.totalPages;
+        if (pageInfo) pageInfo.textContent = `${importsState.currentPage} / ${importsState.totalPages}`;
+
+        paginationDiv.style.display = importsState.totalPages > 1 ? 'flex' : 'none';
+    }
+}
+
+function renderImportCard(item) {
+    const statusLabel = IMPORT_STATUS_LABELS[item.status] || item.status;
+    const totalPlot = item.total_plot || 0;
+    const parserPlot = item.parser_plot || 0;
+    const processedPlot = item.processed_plot || 0;
+
+    // Progress calculation
+    let progressPct = 0;
+    let progressText = '';
+    if (totalPlot > 0) {
+        if (item.status === 'parsing') {
+            progressPct = Math.round((parserPlot / totalPlot) * 100);
+            progressText = `解析进度: ${parserPlot} / ${totalPlot} (${progressPct}%)`;
+        } else {
+            progressPct = Math.round((processedPlot / totalPlot) * 100);
+            progressText = `处理进度: ${processedPlot} / ${totalPlot} (${progressPct}%)`;
+        }
+    }
+
+    const createdAt = item.created_at ? new Date(item.created_at).toLocaleString() : '-';
+    const completedAt = item.completed_at ? new Date(item.completed_at).toLocaleString() : '';
+
+    let errorHtml = '';
+    if (item.status === 'error' && item.error_message) {
+        errorHtml = `<div class="import-error-msg">${escapeHtml(item.error_message)}</div>`;
+    }
+
+    let retryHtml = '';
+    if (item.status === 'error') {
+        retryHtml = `<button class="import-retry-btn" onclick="retryImport('${item.id}', this)">重试</button>`;
+    }
+
+    return `<div class="import-card">
+        <div class="import-card-header">
+            <div>
+                <div class="import-card-title">${escapeHtml(item.title || '未知标题')}</div>
+                <div class="import-card-meta">
+                    ${item.author ? '作者: ' + escapeHtml(item.author) : ''}
+                    ${item.genre ? ' | 类型: ' + escapeHtml(item.genre) : ''}
+                    ${item.file_size ? ' | ' + escapeHtml(item.file_size) : ''}
+                </div>
+            </div>
+            <span class="import-badge ${item.status}">${statusLabel}</span>
+        </div>
+        ${totalPlot > 0 ? `
+            <div class="import-progress-bar">
+                <div class="import-progress-fill ${item.status}" style="width:${progressPct}%"></div>
+            </div>
+            <div class="import-progress-text">${progressText}</div>
+        ` : ''}
+        ${errorHtml}
+        <div class="import-card-footer">
+            <span>创建: ${createdAt}${completedAt ? ' | 完成: ' + completedAt : ''}</span>
+            ${retryHtml}
+        </div>
+    </div>`;
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function filterImports(status) {
+    importsState.currentFilter = status;
+    renderImportsList();
+}
+
+async function retryImport(importId, btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '重试中...';
+    }
+
+    try {
+        const resp = await fetch(`./novel/imports/${importId}/retry`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const json = await resp.json();
+
+        if (!resp.ok) {
+            throw new Error(json.message || json.detail || '重试失败');
+        }
+
+        showStatus('重试任务已提交', 'success');
+        loadImportsList(importsState.currentPage);
+
+    } catch (err) {
+        showStatus(`重试失败: ${err.message}`, 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '重试';
+        }
+    }
+}
 
 // =====================================================================
 // OAuth认证相关函数
@@ -2153,188 +2485,6 @@ async function clearEnvCredentials() {
         }
     } catch (error) {
         showStatus(`网络错误: ${error.message}`, 'error');
-    }
-}
-
-// =====================================================================
-// 配置管理
-// =====================================================================
-async function loadConfig() {
-    const loading = document.getElementById('configLoading');
-    const form = document.getElementById('configForm');
-
-    try {
-        loading.style.display = 'block';
-        form.classList.add('hidden');
-
-        const response = await fetch('./config/get', { headers: getAuthHeaders() });
-        const data = await response.json();
-
-        if (response.ok) {
-            AppState.currentConfig = data.config;
-            AppState.envLockedFields = new Set(data.env_locked || []);
-
-            populateConfigForm();
-            form.classList.remove('hidden');
-            showStatus('配置加载成功', 'success');
-        } else {
-            showStatus(`加载配置失败: ${data.detail || data.error || '未知错误'}`, 'error');
-        }
-    } catch (error) {
-        showStatus(`网络错误: ${error.message}`, 'error');
-    } finally {
-        loading.style.display = 'none';
-    }
-}
-
-function populateConfigForm() {
-    const c = AppState.currentConfig;
-
-    setConfigField('host', c.host || '0.0.0.0');
-    setConfigField('port', c.port || 7861);
-    setConfigField('configApiPassword', c.api_password || '');
-    setConfigField('configPanelPassword', c.panel_password || '');
-    setConfigField('configPassword', c.password || 'pwd');
-    setConfigField('credentialsDir', c.credentials_dir || '');
-    setConfigField('proxy', c.proxy || '');
-    setConfigField('codeAssistEndpoint', c.code_assist_endpoint || '');
-    setConfigField('oauthProxyUrl', c.oauth_proxy_url || '');
-    setConfigField('googleapisProxyUrl', c.googleapis_proxy_url || '');
-    setConfigField('resourceManagerApiUrl', c.resource_manager_api_url || '');
-    setConfigField('serviceUsageApiUrl', c.service_usage_api_url || '');
-    setConfigField('antigravityApiUrl', c.antigravity_api_url || '');
-
-    document.getElementById('autoBanEnabled').checked = Boolean(c.auto_ban_enabled);
-    setConfigField('autoBanErrorCodes', (c.auto_ban_error_codes || []).join(','));
-    setConfigField('callsPerRotation', c.calls_per_rotation || 10);
-
-    document.getElementById('retry429Enabled').checked = Boolean(c.retry_429_enabled);
-    setConfigField('retry429MaxRetries', c.retry_429_max_retries || 20);
-    setConfigField('retry429Interval', c.retry_429_interval || 0.1);
-
-    document.getElementById('compatibilityModeEnabled').checked = Boolean(c.compatibility_mode_enabled);
-    document.getElementById('returnThoughtsToFrontend').checked = Boolean(c.return_thoughts_to_frontend !== false);
-    document.getElementById('antigravityStream2nostream').checked = Boolean(c.antigravity_stream2nostream !== false);
-
-    setConfigField('antiTruncationMaxAttempts', c.anti_truncation_max_attempts || 3);
-}
-
-function setConfigField(fieldId, value) {
-    const field = document.getElementById(fieldId);
-    if (field) {
-        field.value = value;
-        const configKey = fieldId.replace(/([A-Z])/g, '_$1').toLowerCase();
-        if (AppState.envLockedFields.has(configKey)) {
-            field.disabled = true;
-            field.classList.add('env-locked');
-        } else {
-            field.disabled = false;
-            field.classList.remove('env-locked');
-        }
-    }
-}
-
-async function saveConfig() {
-    try {
-        const getValue = (id, def = '') => document.getElementById(id)?.value.trim() || def;
-        const getInt = (id, def = 0) => parseInt(document.getElementById(id)?.value) || def;
-        const getFloat = (id, def = 0.0) => parseFloat(document.getElementById(id)?.value) || def;
-        const getChecked = (id, def = false) => document.getElementById(id)?.checked || def;
-
-        const config = {
-            host: getValue('host', '0.0.0.0'),
-            port: getInt('port', 7861),
-            api_password: getValue('configApiPassword'),
-            panel_password: getValue('configPanelPassword'),
-            password: getValue('configPassword', 'pwd'),
-            code_assist_endpoint: getValue('codeAssistEndpoint'),
-            credentials_dir: getValue('credentialsDir'),
-            proxy: getValue('proxy'),
-            oauth_proxy_url: getValue('oauthProxyUrl'),
-            googleapis_proxy_url: getValue('googleapisProxyUrl'),
-            resource_manager_api_url: getValue('resourceManagerApiUrl'),
-            service_usage_api_url: getValue('serviceUsageApiUrl'),
-            antigravity_api_url: getValue('antigravityApiUrl'),
-            auto_ban_enabled: getChecked('autoBanEnabled'),
-            auto_ban_error_codes: getValue('autoBanErrorCodes').split(',')
-                .map(c => parseInt(c.trim())).filter(c => !isNaN(c)),
-            calls_per_rotation: getInt('callsPerRotation', 10),
-            retry_429_enabled: getChecked('retry429Enabled'),
-            retry_429_max_retries: getInt('retry429MaxRetries', 20),
-            retry_429_interval: getFloat('retry429Interval', 0.1),
-            compatibility_mode_enabled: getChecked('compatibilityModeEnabled'),
-            return_thoughts_to_frontend: getChecked('returnThoughtsToFrontend'),
-            antigravity_stream2nostream: getChecked('antigravityStream2nostream'),
-            anti_truncation_max_attempts: getInt('antiTruncationMaxAttempts', 3)
-        };
-
-        const response = await fetch('./config/save', {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ config })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            let message = '配置保存成功';
-
-            if (data.hot_updated && data.hot_updated.length > 0) {
-                message += `，以下配置已立即生效: ${data.hot_updated.join(', ')}`;
-            }
-
-            if (data.restart_required && data.restart_required.length > 0) {
-                message += `\n⚠️ 重启提醒: ${data.restart_notice}`;
-                showStatus(message, 'info');
-            } else {
-                showStatus(message, 'success');
-            }
-
-            setTimeout(() => loadConfig(), 1000);
-        } else {
-            showStatus(`保存配置失败: ${data.detail || data.error || '未知错误'}`, 'error');
-        }
-    } catch (error) {
-        showStatus(`网络错误: ${error.message}`, 'error');
-    }
-}
-
-// 镜像网址配置
-const mirrorUrls = {
-    codeAssistEndpoint: 'https://gcli-api.sukaka.top/cloudcode-pa',
-    oauthProxyUrl: 'https://gcli-api.sukaka.top/oauth2',
-    googleapisProxyUrl: 'https://gcli-api.sukaka.top/googleapis',
-    resourceManagerApiUrl: 'https://gcli-api.sukaka.top/cloudresourcemanager',
-    serviceUsageApiUrl: 'https://gcli-api.sukaka.top/serviceusage',
-    antigravityApiUrl: 'https://gcli-api.sukaka.top/daily-cloudcode-pa'
-};
-
-const officialUrls = {
-    codeAssistEndpoint: 'https://cloudcode-pa.googleapis.com',
-    oauthProxyUrl: 'https://oauth2.googleapis.com',
-    googleapisProxyUrl: 'https://www.googleapis.com',
-    resourceManagerApiUrl: 'https://cloudresourcemanager.googleapis.com',
-    serviceUsageApiUrl: 'https://serviceusage.googleapis.com',
-    antigravityApiUrl: 'https://daily-cloudcode-pa.sandbox.googleapis.com'
-};
-
-function useMirrorUrls() {
-    if (confirm('确定要将所有端点配置为镜像网址吗？')) {
-        for (const [fieldId, url] of Object.entries(mirrorUrls)) {
-            const field = document.getElementById(fieldId);
-            if (field && !field.disabled) field.value = url;
-        }
-        showStatus('✅ 已切换到镜像网址配置，记得点击"保存配置"按钮保存设置', 'success');
-    }
-}
-
-function restoreOfficialUrls() {
-    if (confirm('确定要将所有端点配置为官方地址吗？')) {
-        for (const [fieldId, url] of Object.entries(officialUrls)) {
-            const field = document.getElementById(fieldId);
-            if (field && !field.disabled) field.value = url;
-        }
-        showStatus('✅ 已切换到官方端点配置，记得点击"保存配置"按钮保存设置', 'success');
     }
 }
 

@@ -9,7 +9,6 @@ from typing import Any, AsyncGenerator, Dict, Optional
 
 import httpx
 
-from config import get_proxy_config
 from log import log
 
 
@@ -19,12 +18,6 @@ class HttpxClientManager:
     async def get_client_kwargs(self, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
         """获取httpx客户端的通用配置参数"""
         client_kwargs = {"timeout": timeout, **kwargs}
-
-        # 动态读取代理配置，支持热更新
-        current_proxy_config = await get_proxy_config()
-        if current_proxy_config:
-            client_kwargs["proxy"] = current_proxy_config
-
         return client_kwargs
 
     @asynccontextmanager

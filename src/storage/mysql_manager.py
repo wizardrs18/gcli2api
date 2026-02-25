@@ -37,9 +37,6 @@ class MySQLManager:
         self._initialized = False
         self._lock = asyncio.Lock()
 
-        # 内存配置缓存
-        self._config_cache: Dict[str, Any] = {}
-        self._config_loaded = False
 
     async def initialize(self) -> None:
         """初始化 MySQL 连接池
@@ -74,12 +71,6 @@ class MySQLManager:
                 async with self._pool.acquire() as conn:
                     async with conn.cursor() as cur:
                         await cur.execute("SELECT 1")
-
-                # Ensure gcli2api config table exists
-                await self._ensure_config_table()
-
-                # Load config cache
-                await self._load_config_cache()
 
                 self._initialized = True
                 log.info(f"MySQL storage initialized: {conn_params['host']}:{conn_params['port']}/{conn_params['db']}")
@@ -154,42 +145,6 @@ class MySQLManager:
             "password": password,
             "db": db,
         }
-
-    async def _ensure_config_table(self) -> None:
-        """Ensure gcli2api_config table exists for storing gcli2api-specific config"""
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("""
-                    CREATE TABLE IF NOT EXISTS gcli2api_config (
-                        `key` VARCHAR(255) PRIMARY KEY,
-                        `value` TEXT NOT NULL,
-                        `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                """)
-
-    async def _load_config_cache(self) -> None:
-        """加载配置到内存缓存"""
-        if self._config_loaded:
-            return
-
-        try:
-            async with self._pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute("SELECT `key`, `value` FROM gcli2api_config")
-                    rows = await cur.fetchall()
-
-                    for key, value in rows:
-                        try:
-                            self._config_cache[key] = json.loads(value)
-                        except json.JSONDecodeError:
-                            self._config_cache[key] = value
-
-            self._config_loaded = True
-            log.debug(f"Loaded {len(self._config_cache)} config items into cache")
-
-        except Exception as e:
-            log.error(f"Error loading config cache: {e}")
-            self._config_cache = {}
 
     async def close(self) -> None:
         """关闭连接池"""
@@ -852,54 +807,6 @@ class MySQLManager:
 
         except Exception as e:
             log.error(f"Error setting model cooldown for {filename}: {e}")
-            return False
-
-    # ============ 配置管理（内存缓存）============
-
-    async def set_config(self, key: str, value: Any) -> bool:
-        """设置配置"""
-        self._ensure_initialized()
-
-        try:
-            async with self._pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute("""
-                        INSERT INTO gcli2api_config (`key`, `value`, `updated_at`)
-                        VALUES (%s, %s, NOW())
-                        ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), `updated_at` = NOW()
-                    """, (key, json.dumps(value)))
-
-            self._config_cache[key] = value
-            return True
-
-        except Exception as e:
-            log.error(f"Error setting config {key}: {e}")
-            return False
-
-    async def get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置（从内存缓存）"""
-        self._ensure_initialized()
-        return self._config_cache.get(key, default)
-
-    async def get_all_config(self) -> Dict[str, Any]:
-        """获取所有配置"""
-        self._ensure_initialized()
-        return self._config_cache.copy()
-
-    async def delete_config(self, key: str) -> bool:
-        """删除配置"""
-        self._ensure_initialized()
-
-        try:
-            async with self._pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute("DELETE FROM gcli2api_config WHERE `key` = %s", (key,))
-
-            self._config_cache.pop(key, None)
-            return True
-
-        except Exception as e:
-            log.error(f"Error deleting config {key}: {e}")
             return False
 
     # ============ 数据库信息 ============

@@ -29,9 +29,6 @@ class MongoDBManager:
         self._db: Optional[AsyncIOMotorDatabase] = None
         self._initialized = False
 
-        # 内存配置缓存 - 初始化时加载一次
-        self._config_cache: Dict[str, Any] = {}
-        self._config_loaded = False
 
     async def initialize(self) -> None:
         """初始化 MongoDB 连接"""
@@ -53,9 +50,6 @@ class MongoDBManager:
 
             # 创建索引
             await self._create_indexes()
-
-            # 加载配置到内存
-            await self._load_config_cache()
 
             self._initialized = True
             log.info(f"MongoDB storage initialized (database: {database_name})")
@@ -92,25 +86,6 @@ class MongoDBManager:
         await antigravity_credentials_collection.create_index("error_codes")
 
         log.debug("MongoDB indexes created")
-
-    async def _load_config_cache(self):
-        """加载配置到内存缓存（仅在初始化时调用一次）"""
-        if self._config_loaded:
-            return
-
-        try:
-            config_collection = self._db["config"]
-            cursor = config_collection.find({})
-
-            async for doc in cursor:
-                self._config_cache[doc["key"]] = doc.get("value")
-
-            self._config_loaded = True
-            log.debug(f"Loaded {len(self._config_cache)} config items into cache")
-
-        except Exception as e:
-            log.error(f"Error loading config cache: {e}")
-            self._config_cache = {}
 
     async def close(self) -> None:
         """关闭 MongoDB 连接"""
@@ -760,61 +735,6 @@ class MongoDBManager:
                 "limit": limit,
                 "stats": {"total": 0, "normal": 0, "disabled": 0},
             }
-
-    # ============ 配置管理（内存缓存）============
-
-    async def set_config(self, key: str, value: Any) -> bool:
-        """设置配置（写入数据库 + 更新内存缓存）"""
-        self._ensure_initialized()
-
-        try:
-            config_collection = self._db["config"]
-            await config_collection.update_one(
-                {"key": key},
-                {"$set": {"value": value, "updated_at": time.time()}},
-                upsert=True,
-            )
-
-            # 更新内存缓存
-            self._config_cache[key] = value
-            return True
-
-        except Exception as e:
-            log.error(f"Error setting config {key}: {e}")
-            return False
-
-    async def reload_config_cache(self):
-        """重新加载配置缓存（在批量修改配置后调用）"""
-        self._ensure_initialized()
-        self._config_loaded = False
-        await self._load_config_cache()
-        log.info("Config cache reloaded from database")
-
-    async def get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置（从内存缓存）"""
-        self._ensure_initialized()
-        return self._config_cache.get(key, default)
-
-    async def get_all_config(self) -> Dict[str, Any]:
-        """获取所有配置（从内存缓存）"""
-        self._ensure_initialized()
-        return self._config_cache.copy()
-
-    async def delete_config(self, key: str) -> bool:
-        """删除配置"""
-        self._ensure_initialized()
-
-        try:
-            config_collection = self._db["config"]
-            result = await config_collection.delete_one({"key": key})
-
-            # 从内存缓存移除
-            self._config_cache.pop(key, None)
-            return result.deleted_count > 0
-
-        except Exception as e:
-            log.error(f"Error deleting config {key}: {e}")
-            return False
 
     # ============ 模型级冷却管理 ============
 

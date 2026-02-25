@@ -375,5 +375,3 @@ class CredFileBatchActionRequest(BaseModel):
     filenames: List[str]  # 批量操作的文件名列表
 
 
-class ConfigSaveRequest(BaseModel):
-    config: dict

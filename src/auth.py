@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+import os
 import secrets
 import socket
 import threading
@@ -14,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from config import get_config_value, get_antigravity_api_url, get_code_assist_endpoint
+from config import get_antigravity_api_url, get_code_assist_endpoint
 from log import log
 
 from .google_oauth_api import (
@@ -42,7 +43,7 @@ from .utils import (
 
 async def get_callback_port():
     """获取OAuth回调端口"""
-    return int(await get_config_value("oauth_callback_port", "11451", "OAUTH_CALLBACK_PORT"))
+    return int(os.getenv("OAUTH_CALLBACK_PORT", "11451"))
 
 
 def _prepare_credentials_data(credentials: Credentials, project_id: str, mode: str = "geminicli") -> Dict[str, Any]:

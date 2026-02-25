@@ -30,6 +30,8 @@ from src.router.geminicli.anthropic import router as geminicli_anthropic_router
 from src.router.geminicli.model_list import router as geminicli_model_list_router
 from src.task_manager import shutdown_all_tasks
 from src.web_routes import router as web_router
+from src.novel_routes import router as novel_router
+from src.dashboard_routes import router as dashboard_router
 
 # 全局凭证管理器
 global_credential_manager = None
@@ -41,14 +43,6 @@ async def lifespan(app: FastAPI):
     global global_credential_manager
 
     log.info("启动 GCLI2API 主服务")
-
-    # 初始化配置缓存（优先执行）
-    try:
-        import config
-        await config.init_config()
-        log.info("配置缓存初始化成功")
-    except Exception as e:
-        log.error(f"配置缓存初始化失败: {e}")
 
     # 初始化全局凭证管理器（通过单例工厂）
     try:
@@ -129,6 +123,12 @@ app.include_router(geminicli_anthropic_router, prefix="", tags=["Geminicli Anthr
 
 # Web路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(web_router, prefix="", tags=["Web Interface"])
+
+# Novel管理路由 - 转发到novel_backend的管理API
+app.include_router(novel_router, prefix="", tags=["Novel Management"])
+
+# Dashboard路由 - 小说平台业务指标
+app.include_router(dashboard_router, prefix="", tags=["Novel Dashboard"])
 
 # 静态文件路由 - 服务docs目录下的文件（如捐赠图片）
 app.mount("/docs", StaticFiles(directory="docs"), name="docs")

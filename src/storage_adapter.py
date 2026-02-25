@@ -55,22 +55,6 @@ class StorageBackend(Protocol):
         """获取所有凭证状态"""
         ...
 
-    # 配置管理
-    async def set_config(self, key: str, value: Any) -> bool:
-        """设置配置项"""
-        ...
-
-    async def get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置项"""
-        ...
-
-    async def get_all_config(self) -> Dict[str, Any]:
-        """获取所有配置"""
-        ...
-
-    async def delete_config(self, key: str) -> bool:
-        """删除配置项"""
-        ...
 
 
 class StorageAdapter:
@@ -200,28 +184,6 @@ class StorageAdapter:
         """获取所有凭证状态"""
         self._ensure_initialized()
         return await self._backend.get_all_credential_states(mode)
-
-    # ============ 配置管理 ============
-
-    async def set_config(self, key: str, value: Any) -> bool:
-        """设置配置项"""
-        self._ensure_initialized()
-        return await self._backend.set_config(key, value)
-
-    async def get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置项"""
-        self._ensure_initialized()
-        return await self._backend.get_config(key, default)
-
-    async def get_all_config(self) -> Dict[str, Any]:
-        """获取所有配置"""
-        self._ensure_initialized()
-        return await self._backend.get_all_config()
-
-    async def delete_config(self, key: str) -> bool:
-        """删除配置项"""
-        self._ensure_initialized()
-        return await self._backend.delete_config(key)
 
     # ============ 工具方法 ============
 

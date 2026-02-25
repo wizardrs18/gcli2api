@@ -57,9 +57,6 @@ class SQLiteManager:
         self._initialized = False
         self._lock = asyncio.Lock()
 
-        # 内存配置缓存 - 初始化时加载一次
-        self._config_cache: Dict[str, Any] = {}
-        self._config_loaded = False
 
     async def initialize(self) -> None:
         """初始化 SQLite 数据库"""
@@ -91,9 +88,6 @@ class SQLiteManager:
                     await self._create_tables(db)
 
                     await db.commit()
-
-                # 加载配置到内存
-                await self._load_config_cache()
 
                 self._initialized = True
                 log.info(f"SQLite storage initialized at {self._db_path}")
@@ -214,39 +208,7 @@ class SQLiteManager:
             ON antigravity_credentials(rotation_order)
         """)
 
-        # 配置表
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS config (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at REAL DEFAULT (unixepoch())
-            )
-        """)
-
         log.debug("SQLite tables and indexes created")
-
-    async def _load_config_cache(self):
-        """加载配置到内存缓存（仅在初始化时调用一次）"""
-        if self._config_loaded:
-            return
-
-        try:
-            async with aiosqlite.connect(self._db_path) as db:
-                async with db.execute("SELECT key, value FROM config") as cursor:
-                    rows = await cursor.fetchall()
-
-                for key, value in rows:
-                    try:
-                        self._config_cache[key] = json.loads(value)
-                    except json.JSONDecodeError:
-                        self._config_cache[key] = value
-
-            self._config_loaded = True
-            log.debug(f"Loaded {len(self._config_cache)} config items into cache")
-
-        except Exception as e:
-            log.error(f"Error loading config cache: {e}")
-            self._config_cache = {}
 
     async def close(self) -> None:
         """关闭数据库连接"""
@@ -886,65 +848,6 @@ class SQLiteManager:
                 "unique_email_count": 0,
                 "total_count": 0,
             }
-
-    # ============ 配置管理（内存缓存）============
-
-    async def set_config(self, key: str, value: Any) -> bool:
-        """设置配置（写入数据库 + 更新内存缓存）"""
-        self._ensure_initialized()
-
-        try:
-            async with aiosqlite.connect(self._db_path) as db:
-                await db.execute("""
-                    INSERT INTO config (key, value, updated_at)
-                    VALUES (?, ?, unixepoch())
-                    ON CONFLICT(key) DO UPDATE SET
-                        value = excluded.value,
-                        updated_at = excluded.updated_at
-                """, (key, json.dumps(value)))
-                await db.commit()
-
-            # 更新内存缓存
-            self._config_cache[key] = value
-            return True
-
-        except Exception as e:
-            log.error(f"Error setting config {key}: {e}")
-            return False
-
-    async def reload_config_cache(self):
-        """重新加载配置缓存（在批量修改配置后调用）"""
-        self._ensure_initialized()
-        self._config_loaded = False
-        await self._load_config_cache()
-        log.info("Config cache reloaded from database")
-
-    async def get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置（从内存缓存）"""
-        self._ensure_initialized()
-        return self._config_cache.get(key, default)
-
-    async def get_all_config(self) -> Dict[str, Any]:
-        """获取所有配置（从内存缓存）"""
-        self._ensure_initialized()
-        return self._config_cache.copy()
-
-    async def delete_config(self, key: str) -> bool:
-        """删除配置"""
-        self._ensure_initialized()
-
-        try:
-            async with aiosqlite.connect(self._db_path) as db:
-                await db.execute("DELETE FROM config WHERE key = ?", (key,))
-                await db.commit()
-
-            # 从内存缓存移除
-            self._config_cache.pop(key, None)
-            return True
-
-        except Exception as e:
-            log.error(f"Error deleting config {key}: {e}")
-            return False
 
     # ============ 模型级冷却管理 ============
 

@@ -679,6 +679,206 @@
             border-left: 4px solid #6c757d;
         }
 
+        /* Dashboard styles */
+        .dashboard-section {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .dashboard-section h4 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 8px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 12px;
+        }
+
+        .dash-card {
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 14px 16px;
+            text-align: center;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .dash-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .dash-card .dash-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: #333;
+            display: block;
+            line-height: 1.2;
+        }
+
+        .dash-card .dash-label {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            margin-top: 4px;
+            letter-spacing: 0.5px;
+        }
+
+        .dash-card.blue   { border-left: 4px solid #007bff; }
+        .dash-card.green  { border-left: 4px solid #28a745; }
+        .dash-card.orange { border-left: 4px solid #fd7e14; }
+        .dash-card.red    { border-left: 4px solid #dc3545; }
+        .dash-card.purple { border-left: 4px solid #6f42c1; }
+        .dash-card.teal   { border-left: 4px solid #20c997; }
+        .dash-card.gray   { border-left: 4px solid #6c757d; }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .dashboard-header h3 {
+            margin: 0;
+        }
+
+        .dashboard-header .dash-time {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .dashboard-error {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            color: #856404;
+        }
+
+        /* Import task card styles */
+        .import-card {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .import-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+            gap: 12px;
+        }
+
+        .import-card-title {
+            font-weight: bold;
+            color: #333;
+            font-size: 15px;
+        }
+
+        .import-card-meta {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .import-badge {
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            color: white;
+            white-space: nowrap;
+        }
+
+        .import-badge.parsing    { background-color: #007bff; }
+        .import-badge.processing { background-color: #fd7e14; }
+        .import-badge.error      { background-color: #dc3545; }
+        .import-badge.completed  { background-color: #28a745; }
+
+        .import-progress-bar {
+            background-color: #e9ecef;
+            border-radius: 4px;
+            height: 8px;
+            margin: 10px 0 6px;
+            overflow: hidden;
+        }
+
+        .import-progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .import-progress-fill.parsing    { background-color: #007bff; }
+        .import-progress-fill.processing { background-color: #fd7e14; }
+        .import-progress-fill.error      { background-color: #dc3545; }
+        .import-progress-fill.completed  { background-color: #28a745; }
+
+        .import-progress-text {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .import-error-msg {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 8px;
+            word-break: break-word;
+        }
+
+        .import-card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .import-retry-btn {
+            padding: 4px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            background-color: #fd7e14;
+            color: white;
+            transition: background-color 0.2s;
+        }
+
+        .import-retry-btn:hover {
+            background-color: #e8690b;
+        }
+
+        .import-retry-btn:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .imports-empty {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
         .filter-container {
             display: flex;
             gap: 10px;
@@ -869,94 +1069,6 @@
 
         .error-code-badge.selected {
             background-color: #007bff;
-        }
-
-        /* 配置管理样式 */
-        .config-group {
-            background-color: #f8f9fa;
-            border: 1px solid #e1e4e8;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 15px 0;
-        }
-
-        .config-group h4 {
-            margin-top: 0;
-            margin-bottom: 15px;
-            color: #333;
-            border-bottom: 1px solid #e1e4e8;
-            padding-bottom: 8px;
-        }
-
-        .config-input {
-            width: 100%;
-            padding: 8px 12px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            box-sizing: border-box;
-            margin-bottom: 5px;
-        }
-
-        .config-input:focus {
-            border-color: #4285f4;
-            outline: none;
-        }
-
-        .config-input:disabled {
-            background-color: #f5f5f5;
-            color: #666;
-            cursor: not-allowed;
-        }
-
-        .config-checkbox {
-            margin-right: 8px;
-            transform: scale(1.2);
-        }
-
-        .config-note {
-            display: block;
-            color: #666;
-            font-size: 12px;
-            margin-bottom: 10px;
-            font-style: italic;
-        }
-
-        .config-info {
-            background-color: #e3f2fd;
-            border: 1px solid #1976d2;
-            border-radius: 4px;
-            padding: 12px;
-            margin-top: 8px;
-            font-size: 13px;
-            color: #1565c0;
-        }
-
-        .config-info ul {
-            margin: 8px 0 4px 0;
-            color: #424242;
-        }
-
-        .config-info li {
-            margin: 3px 0;
-        }
-
-        .env-locked {
-            position: relative;
-        }
-
-        .env-locked::after {
-            content: "🔒 环境变量锚定";
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
-            background-color: #ffc107;
-            color: #212529;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 11px;
-            pointer-events: none;
         }
 
         /* 使用统计样式 */
@@ -1182,9 +1294,10 @@
                 <button class="tab" onclick="switchTab('upload')">批量上传</button>
                 <button class="tab" onclick="switchTab('manage')">GCLI凭证管理</button>
                 <button class="tab" onclick="switchTab('antigravity-manage')">Antigravity凭证管理</button>
-                <button class="tab" onclick="switchTab('config')">配置管理</button>
                 <button class="tab" onclick="switchTab('logs')">实时日志</button>
                 <button class="tab" onclick="switchTab('about')">项目信息</button>
+                <button class="tab" onclick="switchTab('dashboard')">Novel Dashboard</button>
+                <button class="tab" onclick="switchTab('imports')">导入任务</button>
             </div>
 
             <!-- OAuth认证标签页 -->
@@ -1696,273 +1809,6 @@
                 </div>
             </div>
 
-            <!-- 配置管理标签页 -->
-            <div id="configTab" class="tab-content">
-                <h3>配置管理</h3>
-                <p>管理系统配置参数，修改后立即生效</p>
-
-                <div class="manage-actions">
-                    <button class="refresh-btn" onclick="loadConfig()">刷新配置</button>
-                    <button class="btn" onclick="saveConfig()">保存配置</button>
-                </div>
-
-                <div id="configSection">
-                    <div class="loading" id="configLoading">正在加载配置...</div>
-                    <div id="configForm" class="hidden">
-                        <div class="config-group">
-                            <h4>服务器配置</h4>
-
-                            <div class="form-group">
-                                <label for="host">服务器主机地址:</label>
-                                <input type="text" id="host" class="config-input"
-                                    placeholder="例如: 0.0.0.0, 127.0.0.1" />
-                                <small class="config-note">服务器监听的主机地址，0.0.0.0表示监听所有接口</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="port">服务器端口:</label>
-                                <input type="number" id="port" class="config-input" min="1" max="65535"
-                                    placeholder="7861" />
-                                <small class="config-note">服务器监听的端口号，修改后需要重启服务器</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="configApiPassword">API访问密码:</label>
-                                <input type="text" id="configApiPassword" class="config-input" placeholder="pwd" />
-                                <small class="config-note">聊天API访问密码，用于OpenAI和Gemini API端点的认证</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="configPanelPassword">控制面板密码:</label>
-                                <input type="text" id="configPanelPassword" class="config-input" placeholder="pwd" />
-                                <small class="config-note">控制面板访问密码，用于web界面登录认证</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="configPassword">通用密码:</label>
-                                <input type="text" id="configPassword" class="config-input" placeholder="pwd" />
-                                <small class="config-note">（兼容性保留）设置后将覆盖上述两个密码，留空则使用分开的密码设置</small>
-                            </div>
-                        </div>
-
-                        <div class="config-group">
-                            <h4>基础配置</h4>
-
-                            <div class="form-group">
-                                <label for="credentialsDir">凭证目录路径:</label>
-                                <input type="text" id="credentialsDir" class="config-input" />
-                                <small class="config-note">存储认证文件的目录路径</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="proxy">代理设置:</label>
-                                <input type="text" id="proxy" class="config-input"
-                                    placeholder="例如: http://proxy:11451 或 socks5://proxy:1080" />
-                                <small class="config-note">HTTP/HTTPS/SOCKS5Endpoint，留空表示不使用代理</small>
-                            </div>
-                        </div>
-
-                        <div class="config-group">
-                            <h4>端点配置</h4>
-
-                            <!-- 快速配置按钮 -->
-                            <div class="form-group">
-                                <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
-                                    <button type="button" class="btn" onclick="useMirrorUrls()"
-                                        style="background-color: #28a745; font-size: 14px;">
-                                        🚀 一键使用镜像网址
-                                    </button>
-                                    <button type="button" class="btn" onclick="restoreOfficialUrls()"
-                                        style="background-color: #17a2b8; font-size: 14px;">
-                                        🔄 还原官方端点
-                                    </button>
-                                </div>
-                                <small class="config-note">镜像网址主要解决墙内无法访问官方端点的问题，部分地区可能无法使用</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="codeAssistEndpoint">Code Assist Endpoint:</label>
-                                <input type="text" id="codeAssistEndpoint" class="config-input" />
-                                <small class="config-note">Google Cloud Code Assist API端点地址</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="oauthProxyUrl">OAuth Endpoint:</label>
-                                <input type="text" id="oauthProxyUrl" class="config-input"
-                                    placeholder="https://oauth2.googleapis.com" />
-                                <small class="config-note">Google OAuth2 API端点地址，用于token获取和刷新</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="googleapisProxyUrl">Google APIs Endpoint:</label>
-                                <input type="text" id="googleapisProxyUrl" class="config-input"
-                                    placeholder="https://www.googleapis.com" />
-                                <small class="config-note">Google APIs API端点地址，用于API服务调用</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="resourceManagerApiUrl">Resource Manager API Endpoint:</label>
-                                <input type="text" id="resourceManagerApiUrl" class="config-input"
-                                    placeholder="https://cloudresourcemanager.googleapis.com" />
-                                <small class="config-note">Google Cloud Resource Manager API端点地址，用于项目管理</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="serviceUsageApiUrl">Service Usage API Endpoint:</label>
-                                <input type="text" id="serviceUsageApiUrl" class="config-input"
-                                    placeholder="https://serviceusage.googleapis.com" />
-                                <small class="config-note">Google Cloud Service Usage API端点地址，用于服务启用管理</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="antigravityApiUrl">Antigravity API Endpoint:</label>
-                                <input type="text" id="antigravityApiUrl" class="config-input"
-                                    placeholder="https://daily-cloudcode-pa.sandbox.googleapis.com" />
-                                <small class="config-note">Google Antigravity API端点地址，用于反重力模式</small>
-                            </div>
-                        </div>
-
-                        <div class="config-group">
-                            <h4>自动封禁配置</h4>
-
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="autoBanEnabled" class="config-checkbox" />
-                                    启用自动封禁
-                                </label>
-                                <small class="config-note">遇到指定错误码时自动禁用凭证</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="autoBanErrorCodes">自动封禁错误码:</label>
-                                <input type="text" id="autoBanErrorCodes" class="config-input"
-                                    placeholder="例如: 400,403" />
-                                <small class="config-note">用逗号分隔的错误码列表</small>
-                            </div>
-                        </div>
-
-                        <div class="config-group">
-                            <h4>429重试配置</h4>
-
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="retry429Enabled" class="config-checkbox" />
-                                    启用429重试
-                                </label>
-                                <small class="config-note">遇到429错误时自动重试</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="retry429MaxRetries">429重试次数:</label>
-                                <input type="number" id="retry429MaxRetries" class="config-input" min="1" max="50" />
-                                <small class="config-note">遇到429错误时的最大重试次数</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="retry429Interval">429重试间隔(秒):</label>
-                                <input type="number" id="retry429Interval" class="config-input" min="0.01" max="10"
-                                    step="0.01" />
-                                <small class="config-note">遇到429错误时每两次重试间的等待时间</small>
-                            </div>
-                        </div>
-
-
-                        <div class="config-group">
-                            <h4>兼容性配置</h4>
-
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="compatibilityModeEnabled" class="config-checkbox" />
-                                    启用兼容性模式
-                                </label>
-                                <small class="config-note">启用后所有system消息全部转换成user，停用system_instructions <span
-                                        style="color: #28a745;">✓ 支持热更新</span></small>
-                                <div class="config-info"
-                                    style="background-color: #fff3cd; border: 1px solid #ffc107; color: #856404;">
-                                    <strong>⚠️ 注意：</strong>该选项可能会降低模型理解能力，但是能避免流式空回的情况。
-                                    <br><strong>适用场景：</strong>当遇到流式传输时模型不返回内容或返回空响应时启用此选项。
-                                </div>
-                            </div>
-
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="returnThoughtsToFrontend" class="config-checkbox" />
-                                    返回思维链到前端
-                                </label>
-                                <small class="config-note">启用后，模型的思维链会在响应中返回；禁用后，思维链会被过滤掉 <span
-                                        style="color: #28a745;">✓ 支持热更新</span></small>
-                                <div class="config-info"
-                                    style="background-color: #e3f2fd; border: 1px solid #2196f3; color: #0d47a1;">
-                                    <strong>💭 说明：</strong>某些模型（如Gemini 2.0
-                                    Pro）支持thinking模式，会在生成回答前先输出思考过程。启用后可以看到模型的思考过程；禁用后只显示最终回答，让输出更简洁。
-                                </div>
-                            </div>
-
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="antigravityStream2nostream" class="config-checkbox" />
-                                    Antigravity流式转非流式
-                                </label>
-                                <small class="config-note">启用后，非流式请求将使用流式API并收集为完整响应 <span
-                                        style="color: #28a745;">✓ 支持热更新</span></small>
-                                <div class="config-info"
-                                    style="background-color: #f3e5f5; border: 1px solid #9c27b0; color: #4a148c;">
-                                    <strong>🔄 说明：</strong>针对Antigravity模式的优化选项。启用后，即使客户端请求非流式响应，后端也会使用流式API获取数据并收集完整后再返回。
-                                    <br><strong>适用场景：</strong>某些情况下流式API比非流式API更稳定，启用此选项可以提高响应质量。
-                                    <br><strong>默认：</strong>已启用
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="config-group">
-                            <h4>抗截断配置</h4>
-
-                            <div class="form-group">
-                                <label for="antiTruncationMaxAttempts">抗截断最大重试次数:</label>
-                                <input type="number" id="antiTruncationMaxAttempts" class="config-input" min="1"
-                                    max="10" />
-                                <small class="config-note">当检测到输出截断时的最大续传尝试次数</small>
-                            </div>
-
-                            <div class="form-group">
-                                <div class="config-info">
-                                    <strong>注意：</strong>抗截断功能现在通过模型名控制：
-                                    <ul style="margin: 5px 0; padding-left: 20px;">
-                                        <li>选择带有 "-流式抗截断" 后缀的模型即可启用</li>
-                                        <li>该功能仅在流式传输时生效</li>
-                                        <li>例如: "gemini-2.5-pro-流式抗截断"</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="config-group">
-                            <h4>配置热更新说明</h4>
-
-                            <div class="form-group">
-                                <div class="config-info"
-                                    style="background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724;">
-                                    <strong>🔥 热更新配置（立即生效）：</strong>
-                                    <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
-                                        <li><strong>网络配置：</strong>代理设置、端点配置、HTTP超时时间、最大连接数</li>
-                                        <li><strong>API配置：</strong>凭证轮换次数、429重试设置、自动封禁配置</li>
-                                        <li><strong>密码配置：</strong>API密码、控制面板密码、通用密码</li>
-                                        <li><strong>功能配置：</strong>抗截断最大重试次数</li>
-                                    </ul>
-                                </div>
-                            </div>
-
-                            <div class="form-group">
-                                <div class="config-info"
-                                    style="background-color: #fff3cd; border: 1px solid #ffc107; color: #856404;">
-                                    <strong>🔄 需要重启的配置：</strong>
-                                    <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
-                                        <li><strong>服务器配置：</strong>主机地址、端口号</li>
-                                        <li><strong>目录配置：</strong>凭证目录路径、Code Assist端点</li>
-                                    </ul>
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- 实时日志标签页 -->
             <div id="logsTab" class="tab-content">
                 <h3>实时日志</h3>
@@ -2067,6 +1913,90 @@
                         <p>• <strong>代码贡献：</strong> 欢迎提交Pull Request改进项目</p>
                         <p>• <strong>文档完善：</strong> 帮助改进项目文档和使用指南</p>
                     </div>
+                </div>
+            </div>
+
+            <!-- Novel Dashboard 标签页 -->
+            <div id="dashboardTab" class="tab-content">
+                <div class="dashboard-header">
+                    <div>
+                        <h3>Novel Platform Dashboard</h3>
+                        <p style="margin:4px 0 0;color:#666;">Business metrics overview</p>
+                    </div>
+                    <div style="text-align:right;">
+                        <span class="dash-time" id="dashboardTime"></span><br>
+                        <button onclick="loadDashboardData()" style="margin-top:6px;padding:6px 16px;border:1px solid #007bff;background:#007bff;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;">Refresh Data</button>
+                    </div>
+                </div>
+
+                <div id="dashboardLoading" style="text-align:center;padding:40px;display:none;">
+                    <p style="color:#666;">Loading dashboard data...</p>
+                </div>
+
+                <div id="dashboardError" style="display:none;"></div>
+
+                <div id="dashboardContent" style="display:none;">
+                    <div class="dashboard-section">
+                        <h4>Users</h4>
+                        <div class="dashboard-grid" id="dashUsers"></div>
+                    </div>
+                    <div class="dashboard-section">
+                        <h4>Revenue</h4>
+                        <div class="dashboard-grid" id="dashRevenue"></div>
+                    </div>
+                    <div class="dashboard-section">
+                        <h4>Novels</h4>
+                        <div class="dashboard-grid" id="dashNovels"></div>
+                    </div>
+                    <div class="dashboard-section">
+                        <h4>Engagement</h4>
+                        <div class="dashboard-grid" id="dashEngagement"></div>
+                    </div>
+                    <div class="dashboard-section">
+                        <h4>Imports</h4>
+                        <div class="dashboard-grid" id="dashImports"></div>
+                    </div>
+                    <div class="dashboard-section">
+                        <h4>API Keys</h4>
+                        <div class="dashboard-grid" id="dashApiKeys"></div>
+                    </div>
+                    <div class="dashboard-section">
+                        <h4>Community</h4>
+                        <div class="dashboard-grid" id="dashCommunity"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 导入任务标签页 -->
+            <div id="importsTab" class="tab-content">
+                <div class="dashboard-header">
+                    <div>
+                        <h3>导入任务管理</h3>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <select id="importsStatusFilter" class="filter-select" onchange="filterImports(this.value)">
+                            <option value="">全部状态</option>
+                            <option value="parsing">解析中</option>
+                            <option value="processing">处理中</option>
+                            <option value="error">错误</option>
+                            <option value="completed">已完成</option>
+                        </select>
+                        <button onclick="loadImportsList()" style="padding:6px 16px;border:1px solid #007bff;background:#007bff;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;">刷新</button>
+                    </div>
+                </div>
+
+                <div id="importsLoading" style="text-align:center;padding:40px;display:none;">
+                    <p style="color:#666;">正在加载导入任务...</p>
+                </div>
+
+                <div id="importsError" style="display:none;"></div>
+
+                <div id="importsList"></div>
+
+                <div id="importsPagination" class="pagination-container" style="display:none;">
+                    <button class="pagination-btn" id="importsPrevBtn" onclick="loadImportsList(importsState.currentPage - 1)">上一页</button>
+                    <span class="pagination-info" id="importsPageInfo"></span>
+                    <button class="pagination-btn" id="importsNextBtn" onclick="loadImportsList(importsState.currentPage + 1)">下一页</button>
                 </div>
             </div>
 
