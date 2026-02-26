@@ -8,6 +8,7 @@ import datetime
 import io
 import json
 import os
+import re
 import time
 import zipfile
 from collections import deque
@@ -1586,6 +1587,187 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
                 "message": "检验失败：无法获取Project ID，请检查凭证是否有效"
             }
         )
+
+
+def extract_validation_url(error_response: dict):
+    """从403错误响应中提取验证URL（三层递进策略）"""
+    VALIDATION_KEYWORDS = ("validation", "verify", "consent", "terms", "tos")
+
+    def _is_validation_url(url: str) -> bool:
+        """检查URL是否包含验证相关关键词"""
+        lower = url.lower()
+        return any(kw in lower for kw in VALIDATION_KEYWORDS)
+
+    def _recursive_find_urls(obj) -> list:
+        """递归搜索dict/list中所有以http开头且含验证关键词的URL字符串"""
+        urls = []
+        if isinstance(obj, dict):
+            for v in obj.values():
+                urls.extend(_recursive_find_urls(v))
+        elif isinstance(obj, list):
+            for item in obj:
+                urls.extend(_recursive_find_urls(item))
+        elif isinstance(obj, str) and obj.startswith("http") and _is_validation_url(obj):
+            urls.append(obj)
+        return urls
+
+    try:
+        # 第一层：error.details 结构化提取（放宽匹配——遍历所有details的metadata寻找含"url"的键）
+        details = error_response.get("error", {}).get("details", [])
+        for detail in details:
+            metadata = detail.get("metadata", {})
+            if isinstance(metadata, dict):
+                for key, value in metadata.items():
+                    if "url" in key.lower() and isinstance(value, str) and value.startswith("http"):
+                        link_text = metadata.get("linkText", "点击验证")
+                        return {"validation_url": value, "link_text": link_text}
+
+        # 第二层：递归搜索整个error_data中含验证关键词的URL
+        found_urls = _recursive_find_urls(error_response)
+        if found_urls:
+            return {"validation_url": found_urls[0], "link_text": "点击验证"}
+
+        # 第三层：从error.message文本中用正则提取URL
+        message = error_response.get("error", {}).get("message", "")
+        if message:
+            url_match = re.search(r'https?://\S+', message)
+            if url_match:
+                return {"validation_url": url_match.group(0), "link_text": "点击验证"}
+
+    except Exception as e:
+        log.warning(f"extract_validation_url异常: {e}")
+    return None
+
+
+async def check_credential_common(filename: str, mode: str = "geminicli") -> JSONResponse:
+    """使用轻量级API调用检测凭证可用性"""
+    mode = validate_mode(mode)
+
+    # 验证文件名
+    if not filename.endswith(".json"):
+        raise HTTPException(status_code=400, detail="无效的文件名")
+
+    storage_adapter = await get_storage_adapter()
+
+    # 获取凭证数据
+    credential_data = await storage_adapter.get_credential(filename, mode=mode)
+    if not credential_data:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+
+    # 创建凭证对象
+    credentials = Credentials.from_dict(credential_data)
+
+    # 确保token有效（自动刷新）
+    token_refreshed = await credentials.refresh_if_needed()
+
+    # 如果token被刷新了，更新存储
+    if token_refreshed:
+        log.info(f"Token已自动刷新: {filename} (mode={mode})")
+        credential_data = credentials.to_dict()
+        await storage_adapter.store_credential(filename, credential_data, mode=mode)
+
+    # 获取API端点和对应的User-Agent
+    if mode == "antigravity":
+        api_base_url = await get_antigravity_api_url()
+        user_agent = ANTIGRAVITY_USER_AGENT
+    else:
+        api_base_url = await get_code_assist_endpoint()
+        user_agent = GEMINICLI_USER_AGENT
+
+    # 构造最小化请求
+    access_token = credentials.access_token
+    project_id = credential_data.get("project_id", "")
+
+    target_url = f"{api_base_url.rstrip('/')}/v1internal:generateContent"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "User-Agent": user_agent,
+    }
+    payload = {
+        "model": "gemini-2.5-flash",
+        "project": project_id,
+        "request": {
+            "generationConfig": {"maxOutputTokens": 1},
+            "contents": [{"role": "user", "parts": [{"text": "hi"}]}]
+        }
+    }
+
+    try:
+        from src.httpx_client import post_async
+        response = await post_async(url=target_url, json=payload, headers=headers, timeout=30.0)
+        status_code = response.status_code
+
+        if status_code == 200:
+            # 成功：清除error_codes + 解除禁用
+            await storage_adapter.update_credential_state(filename, {
+                "disabled": False,
+                "error_codes": []
+            }, mode=mode)
+            log.info(f"检测 {mode} 凭证成功: {filename} - 已解除禁用并清除错误码")
+            return JSONResponse(content={
+                "success": True,
+                "status_code": 200,
+                "message": "检测成功！凭证可用，已解除禁用并清除错误码"
+            })
+        else:
+            # 错误响应
+            try:
+                error_data = response.json()
+            except Exception:
+                error_data = {}
+
+            error_msg = error_data.get("error", {}).get("message", response.text[:200])
+
+            # 记录错误码
+            await storage_adapter.update_credential_state(filename, {
+                "error_codes": [status_code]
+            }, mode=mode)
+
+            result = {
+                "success": False,
+                "status_code": status_code,
+                "message": f"检测失败 (HTTP {status_code}): {error_msg}"
+            }
+
+            # 403含验证URL
+            if status_code == 403:
+                log.info(f"检测 {mode} 凭证 {filename} 403响应内容: {json.dumps(error_data, ensure_ascii=False)[:1000]}")
+                validation_info = extract_validation_url(error_data)
+                if validation_info:
+                    result["validation_url"] = validation_info["validation_url"]
+                    result["link_text"] = validation_info["link_text"]
+                    log.info(f"检测 {mode} 凭证 {filename} 需要验证: {validation_info['validation_url']}")
+
+            log.warning(f"检测 {mode} 凭证失败: {filename} - HTTP {status_code}")
+            return JSONResponse(status_code=status_code, content=result)
+
+    except Exception as e:
+        log.error(f"检测凭证请求异常 {filename}: {e}")
+        return JSONResponse(status_code=500, content={
+            "success": False,
+            "status_code": 500,
+            "message": f"检测请求异常: {str(e)}"
+        })
+
+
+@router.post("/creds/check/{filename}")
+async def check_credential(
+    filename: str,
+    token: str = Depends(verify_panel_token),
+    mode: str = "geminicli"
+):
+    """
+    使用轻量级API调用检测凭证可用性
+    """
+    try:
+        mode = validate_mode(mode)
+        return await check_credential_common(filename, mode=mode)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"检测凭证失败 {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"检测失败: {str(e)}")
 
 
 @router.post("/creds/verify-project/{filename}")

@@ -240,7 +240,7 @@ function createCredsManager(type) {
             const selectedCount = this.selectedFiles.size;
             document.getElementById(this.getElementId('SelectedCount')).textContent = `已选择 ${selectedCount} 项`;
 
-            const batchBtns = ['Enable', 'Disable', 'Delete', 'Verify'].map(action =>
+            const batchBtns = ['Enable', 'Disable', 'Delete', 'Verify', 'Check'].map(action =>
                 document.getElementById(this.getElementId(`Batch${action}Btn`))
             );
             batchBtns.forEach(btn => btn && (btn.disabled = selectedCount === 0));
@@ -610,6 +610,7 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn download" onclick="download${managerType === 'antigravity' ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
         <button class="cred-btn email" onclick="fetch${managerType === 'antigravity' ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
         ${managerType === 'antigravity' ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
+        <button class="cred-btn" style="background-color: #2196F3;" onclick="check${managerType === 'antigravity' ? 'Antigravity' : ''}Credential('${filename}')" title="使用API调用检测凭证可用性">检测</button>
         <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${managerType === 'antigravity' ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
@@ -1079,6 +1080,7 @@ const importsState = {
 const IMPORT_STATUS_LABELS = {
     parsing: '解析中',
     processing: '处理中',
+    paused: '已暂停',
     error: '错误',
     completed: '已完成'
 };
@@ -1187,10 +1189,16 @@ function renderImportCard(item) {
         errorHtml = `<div class="import-error-msg">${escapeHtml(item.error_message)}</div>`;
     }
 
-    let retryHtml = '';
-    if (item.status === 'error') {
-        retryHtml = `<button class="import-retry-btn" onclick="retryImport('${item.id}', this)">重试</button>`;
+    let actionHtml = '';
+    if (item.status === 'processing') {
+        actionHtml = `<button class="import-pause-btn" onclick="pauseImport('${item.novel_id}', this)">暂停</button>`;
+    } else if (item.status === 'error' || item.status === 'paused') {
+        actionHtml = `<button class="import-retry-btn" onclick="retryImport('${item.novel_id}', this)">重试</button>`;
     }
+
+    let viewDataHtml = `<button class="import-viewdata-btn" onclick="openPlotUpdateModal('${item.novel_id}', '${escapeHtml(item.title || '未知标题').replace(/'/g, "\\'")}')">查看数据</button>`;
+
+    let deleteHtml = `<button class="import-delete-btn" onclick="deleteImport('${item.novel_id}', this)">删除</button>`;
 
     return `<div class="import-card">
         <div class="import-card-header">
@@ -1213,7 +1221,7 @@ function renderImportCard(item) {
         ${errorHtml}
         <div class="import-card-footer">
             <span>创建: ${createdAt}${completedAt ? ' | 完成: ' + completedAt : ''}</span>
-            ${retryHtml}
+            <span class="import-card-actions">${viewDataHtml}${actionHtml}${deleteHtml}</span>
         </div>
     </div>`;
 }
@@ -1254,6 +1262,205 @@ async function retryImport(importId, btn) {
         if (btn) {
             btn.disabled = false;
             btn.textContent = '重试';
+        }
+    }
+}
+
+async function pauseImport(importId, btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '暂停中...';
+    }
+
+    try {
+        const resp = await fetch(`./novel/imports/${importId}/pause`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const json = await resp.json();
+
+        if (!resp.ok) {
+            throw new Error(json.message || json.detail || '暂停失败');
+        }
+
+        showStatus('任务已暂停', 'success');
+        loadImportsList(importsState.currentPage);
+
+    } catch (err) {
+        showStatus(`暂停失败: ${err.message}`, 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '暂停';
+        }
+    }
+}
+
+async function deleteImport(importId, btn) {
+    if (!confirm('确定要删除这个小说的所有相关数据吗？此操作不可恢复！')) {
+        return;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '删除中...';
+    }
+    try {
+        const resp = await fetch(`./novel/imports/${importId}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+            throw new Error(json.message || json.detail || '删除失败');
+        }
+        showStatus('删除成功', 'success');
+        loadImportsList(importsState.currentPage);
+    } catch (err) {
+        showStatus(`删除失败: ${err.message}`, 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '删除';
+        }
+    }
+}
+
+// =====================================================================
+// Plot Updates 查看数据弹窗
+// =====================================================================
+const plotUpdateState = {
+    importId: '',
+    title: '',
+    currentIndex: 0,
+    total: 0
+};
+
+function openPlotUpdateModal(importId, title) {
+    plotUpdateState.importId = importId;
+    plotUpdateState.title = title;
+    plotUpdateState.currentIndex = 0;
+    plotUpdateState.total = 0;
+
+    const modal = document.getElementById('plotUpdateModal');
+    if (modal) {
+        document.getElementById('plotModalTitle').textContent = title;
+        modal.style.display = 'flex';
+        loadPlotUpdate(0);
+    }
+}
+
+function closePlotUpdateModal() {
+    const modal = document.getElementById('plotUpdateModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function navigatePlotUpdate(delta) {
+    const newIndex = plotUpdateState.currentIndex + delta;
+    if (newIndex >= 0 && newIndex < plotUpdateState.total) {
+        loadPlotUpdate(newIndex);
+    }
+}
+
+function jumpToPlotUpdate() {
+    const input = document.getElementById('plotJumpInput');
+    if (!input) return;
+    const page = parseInt(input.value, 10);
+    if (isNaN(page) || page < 1 || page > plotUpdateState.total) {
+        input.value = plotUpdateState.currentIndex + 1;
+        return;
+    }
+    loadPlotUpdate(page - 1);
+}
+
+async function loadPlotUpdate(index) {
+    const contentDiv = document.getElementById('plotUpdateContent');
+    const plotJumpInput = document.getElementById('plotJumpInput');
+    const plotTotalSpan = document.getElementById('plotTotalSpan');
+    const prevBtn = document.getElementById('plotPrevBtn');
+    const nextBtn = document.getElementById('plotNextBtn');
+
+    if (contentDiv) contentDiv.innerHTML = '<div style="text-align:center;padding:30px;color:#666;">加载中...</div>';
+
+    try {
+        const resp = await fetch(`./novel/imports/${plotUpdateState.importId}/updates?index=${index}`, {
+            headers: getAuthHeaders()
+        });
+        const json = await resp.json();
+
+        if (!resp.ok) {
+            throw new Error(json.detail || '加载失败');
+        }
+
+        plotUpdateState.total = json.total;
+        plotUpdateState.currentIndex = index;
+
+        if (plotJumpInput) plotJumpInput.value = index + 1;
+        if (plotTotalSpan) plotTotalSpan.textContent = json.total;
+        if (prevBtn) prevBtn.disabled = index <= 0;
+        if (nextBtn) nextBtn.disabled = index >= json.total - 1;
+
+        if (!json.item) {
+            contentDiv.innerHTML = '<div style="text-align:center;padding:30px;color:#999;">暂无数据</div>';
+            return;
+        }
+
+        const item = json.item;
+
+        // Plot Text column
+        const plotTextContent = item.plot_text
+            ? escapeHtml(item.plot_text)
+            : '<span style="color:#999;">无数据</span>';
+
+        // Updates JSON column
+        let updatesJsonContent;
+        if (item.updates_json) {
+            const formatted = typeof item.updates_json === 'string'
+                ? item.updates_json
+                : JSON.stringify(item.updates_json, null, 2);
+            updatesJsonContent = escapeHtml(formatted);
+        } else {
+            updatesJsonContent = '<span style="color:#999;">无数据</span>';
+        }
+
+        // Plot Info JSON column
+        let plotInfoJsonContent;
+        if (item.plot_info_json) {
+            const formatted = typeof item.plot_info_json === 'string'
+                ? item.plot_info_json
+                : JSON.stringify(item.plot_info_json, null, 2);
+            plotInfoJsonContent = escapeHtml(formatted);
+        } else {
+            plotInfoJsonContent = '<span style="color:#999;">无数据</span>';
+        }
+
+        // Main Plot JSON (条件展示)
+        let mainPlotHtml = '';
+        if (item.main_plot_json) {
+            const formatted = typeof item.main_plot_json === 'string'
+                ? item.main_plot_json
+                : JSON.stringify(item.main_plot_json, null, 2);
+            mainPlotHtml = `<div class="plot-main-plot-section">
+                <div class="plot-section-title">Main Plot</div>
+                <pre class="plot-json-content">${escapeHtml(formatted)}</pre>
+            </div>`;
+        }
+
+        contentDiv.innerHTML = `${mainPlotHtml}<div class="plot-columns">
+            <div class="plot-column">
+                <div class="plot-section-title">Plot Text</div>
+                <div class="plot-text-content">${plotTextContent}</div>
+            </div>
+            <div class="plot-column">
+                <div class="plot-section-title">Updates JSON</div>
+                <pre class="plot-json-content">${updatesJsonContent}</pre>
+            </div>
+            <div class="plot-column">
+                <div class="plot-section-title">Plot Info JSON</div>
+                <pre class="plot-json-content">${plotInfoJsonContent}</pre>
+            </div>
+        </div>`;
+
+    } catch (err) {
+        if (contentDiv) {
+            contentDiv.innerHTML = `<div style="text-align:center;padding:30px;color:#dc3545;">${escapeHtml(err.message)}</div>`;
         }
     }
 }
@@ -2135,6 +2342,224 @@ async function batchVerifyAntigravityProjectIds() {
 
     console.log(summary);
     alert(summary);
+}
+
+
+// =====================================================================
+// 凭证检测功能
+// =====================================================================
+async function checkCredential(filename) {
+    try {
+        showStatus('正在检测凭证可用性，请稍候...', 'info');
+
+        const response = await fetch(`./creds/check/${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showStatus(`检测成功！凭证 ${filename} 可用`, 'success');
+            alert(`检测成功！\n\n文件: ${filename}\n${data.message}`);
+            await AppState.creds.refresh();
+        } else if (data.status_code === 403 && data.validation_url) {
+            showValidationUrlModal(filename, data.validation_url, data.link_text || '点击验证');
+            await AppState.creds.refresh();
+        } else {
+            showStatus(`检测失败: ${data.message}`, 'error');
+            alert(`检测失败\n\n文件: ${filename}\n${data.message}`);
+            await AppState.creds.refresh();
+        }
+    } catch (error) {
+        showStatus(`检测失败: ${error.message}`, 'error');
+        alert(`检测失败: ${error.message}`);
+    }
+}
+
+async function checkAntigravityCredential(filename) {
+    try {
+        showStatus('正在检测Antigravity凭证可用性，请稍候...', 'info');
+
+        const response = await fetch(`./creds/check/${encodeURIComponent(filename)}?mode=antigravity`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showStatus(`检测成功！Antigravity凭证 ${filename} 可用`, 'success');
+            alert(`检测成功！\n\n文件: ${filename}\n${data.message}`);
+            await AppState.antigravityCreds.refresh();
+        } else if (data.status_code === 403 && data.validation_url) {
+            showValidationUrlModal(filename, data.validation_url, data.link_text || '点击验证');
+            await AppState.antigravityCreds.refresh();
+        } else {
+            showStatus(`检测失败: ${data.message}`, 'error');
+            alert(`检测失败\n\n文件: ${filename}\n${data.message}`);
+            await AppState.antigravityCreds.refresh();
+        }
+    } catch (error) {
+        showStatus(`检测失败: ${error.message}`, 'error');
+        alert(`检测失败: ${error.message}`);
+    }
+}
+
+function showValidationUrlModal(filename, url, linkText) {
+    const modal = document.getElementById('validationUrlModal');
+    if (!modal) return;
+    document.getElementById('validationFilename').textContent = filename;
+    const linkEl = document.getElementById('validationLink');
+    linkEl.href = url;
+    linkEl.textContent = linkText || url;
+    document.getElementById('validationUrlDisplay').textContent = url;
+    modal.style.display = 'block';
+}
+
+function closeValidationUrlModal() {
+    const modal = document.getElementById('validationUrlModal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function batchCheckCredentials() {
+    const selectedFiles = Array.from(AppState.creds.selectedFiles);
+    if (selectedFiles.length === 0) {
+        showStatus('请先选择要检测的凭证', 'error');
+        alert('请先选择要检测的凭证');
+        return;
+    }
+
+    if (!confirm(`确定要批量检测 ${selectedFiles.length} 个凭证吗？\n\n将并行检测以加快速度。`)) {
+        return;
+    }
+
+    showStatus(`正在并行检测 ${selectedFiles.length} 个凭证，请稍候...`, 'info');
+
+    const promises = selectedFiles.map(async (filename) => {
+        try {
+            const response = await fetch(`./creds/check/${encodeURIComponent(filename)}`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            });
+            const data = await response.json();
+            return { filename, ...data };
+        } catch (error) {
+            return { filename, success: false, message: error.message };
+        }
+    });
+
+    const results = await Promise.all(promises);
+
+    let successCount = 0;
+    let failCount = 0;
+    const validationUrls = [];
+    const resultMessages = [];
+
+    results.forEach(result => {
+        if (result.success) {
+            successCount++;
+            resultMessages.push(`${result.filename}: 可用`);
+        } else {
+            failCount++;
+            resultMessages.push(`${result.filename}: ${result.message || '失败'}`);
+            if (result.status_code === 403 && result.validation_url) {
+                validationUrls.push({ filename: result.filename, url: result.validation_url, linkText: result.link_text || '点击验证' });
+            }
+        }
+    });
+
+    await AppState.creds.refresh();
+
+    if (validationUrls.length > 0) {
+        // 显示所有需要验证的URL
+        let validationMsg = `批量检测完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n\n以下凭证需要验证（${validationUrls.length}个）:\n`;
+        validationUrls.forEach(v => {
+            validationMsg += `\n${v.filename}: ${v.url}`;
+        });
+        alert(validationMsg);
+        // 显示第一个验证URL的弹窗
+        showValidationUrlModal(validationUrls[0].filename, validationUrls[0].url, validationUrls[0].linkText);
+    } else {
+        const summary = `批量检测完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${resultMessages.join('\n')}`;
+        alert(summary);
+    }
+
+    if (failCount === 0) {
+        showStatus(`全部检测成功！成功 ${successCount}/${selectedFiles.length} 个凭证`, 'success');
+    } else if (successCount === 0) {
+        showStatus(`全部检测失败！失败 ${failCount}/${selectedFiles.length} 个凭证`, 'error');
+    } else {
+        showStatus(`批量检测完成：成功 ${successCount}/${selectedFiles.length} 个，失败 ${failCount} 个`, 'info');
+    }
+}
+
+async function batchCheckAntigravityCredentials() {
+    const selectedFiles = Array.from(AppState.antigravityCreds.selectedFiles);
+    if (selectedFiles.length === 0) {
+        showStatus('请先选择要检测的Antigravity凭证', 'error');
+        alert('请先选择要检测的Antigravity凭证');
+        return;
+    }
+
+    if (!confirm(`确定要批量检测 ${selectedFiles.length} 个Antigravity凭证吗？\n\n将并行检测以加快速度。`)) {
+        return;
+    }
+
+    showStatus(`正在并行检测 ${selectedFiles.length} 个Antigravity凭证，请稍候...`, 'info');
+
+    const promises = selectedFiles.map(async (filename) => {
+        try {
+            const response = await fetch(`./creds/check/${encodeURIComponent(filename)}?mode=antigravity`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            });
+            const data = await response.json();
+            return { filename, ...data };
+        } catch (error) {
+            return { filename, success: false, message: error.message };
+        }
+    });
+
+    const results = await Promise.all(promises);
+
+    let successCount = 0;
+    let failCount = 0;
+    const validationUrls = [];
+    const resultMessages = [];
+
+    results.forEach(result => {
+        if (result.success) {
+            successCount++;
+            resultMessages.push(`${result.filename}: 可用`);
+        } else {
+            failCount++;
+            resultMessages.push(`${result.filename}: ${result.message || '失败'}`);
+            if (result.status_code === 403 && result.validation_url) {
+                validationUrls.push({ filename: result.filename, url: result.validation_url, linkText: result.link_text || '点击验证' });
+            }
+        }
+    });
+
+    await AppState.antigravityCreds.refresh();
+
+    if (validationUrls.length > 0) {
+        let validationMsg = `Antigravity批量检测完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n\n以下凭证需要验证（${validationUrls.length}个）:\n`;
+        validationUrls.forEach(v => {
+            validationMsg += `\n${v.filename}: ${v.url}`;
+        });
+        alert(validationMsg);
+        showValidationUrlModal(validationUrls[0].filename, validationUrls[0].url, validationUrls[0].linkText);
+    } else {
+        const summary = `Antigravity批量检测完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${resultMessages.join('\n')}`;
+        alert(summary);
+    }
+
+    if (failCount === 0) {
+        showStatus(`全部检测成功！成功 ${successCount}/${selectedFiles.length} 个Antigravity凭证`, 'success');
+    } else if (successCount === 0) {
+        showStatus(`全部检测失败！失败 ${failCount}/${selectedFiles.length} 个Antigravity凭证`, 'error');
+    } else {
+        showStatus(`批量检测完成：成功 ${successCount}/${selectedFiles.length} 个，失败 ${failCount} 个`, 'info');
+    }
 }
 
 

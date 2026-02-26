@@ -509,6 +509,7 @@
 
         .import-badge.parsing    { background-color: #007bff; }
         .import-badge.processing { background-color: #fd7e14; }
+        .import-badge.paused     { background-color: #6c757d; }
         .import-badge.error      { background-color: #dc3545; }
         .import-badge.completed  { background-color: #28a745; }
 
@@ -528,6 +529,7 @@
 
         .import-progress-fill.parsing    { background-color: #007bff; }
         .import-progress-fill.processing { background-color: #fd7e14; }
+        .import-progress-fill.paused     { background-color: #6c757d; }
         .import-progress-fill.error      { background-color: #dc3545; }
         .import-progress-fill.completed  { background-color: #28a745; }
 
@@ -574,6 +576,251 @@
             background-color: #e9ecef;
             color: #6c757d;
             cursor: not-allowed;
+        }
+
+        .import-pause-btn {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            background-color: #6c757d;
+            color: white;
+            transition: background-color 0.2s;
+        }
+
+        .import-pause-btn:hover {
+            background-color: #5a6268;
+        }
+
+        .import-pause-btn:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .import-viewdata-btn {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            background-color: #17a2b8;
+            color: white;
+            transition: background-color 0.2s;
+        }
+
+        .import-viewdata-btn:hover {
+            background-color: #138496;
+        }
+
+        .import-delete-btn {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            background-color: #dc3545;
+            color: white;
+            transition: background-color 0.2s;
+        }
+
+        .import-delete-btn:hover {
+            background-color: #c82333;
+        }
+
+        .import-delete-btn:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .import-card-actions {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        /* Plot Update Modal - Mobile */
+        .plot-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 10000;
+            justify-content: center;
+            align-items: flex-end;
+        }
+
+        .plot-modal {
+            background: white;
+            border-radius: 14px 14px 0 0;
+            width: 100%;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+        }
+
+        .plot-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            border-bottom: 1px solid #e1e4e8;
+        }
+
+        .plot-modal-header h4 {
+            margin: 0;
+            font-size: 15px;
+            color: #333;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: calc(100vw - 80px);
+        }
+
+        .plot-modal-close {
+            background: none;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+            color: #999;
+            padding: 0 4px;
+        }
+
+        .plot-modal-close:hover { color: #333; }
+
+        .plot-modal-nav {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .plot-modal-nav button {
+            padding: 4px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .plot-modal-nav button:hover:not(:disabled) {
+            background: #f8f9fa;
+            border-color: #007bff;
+        }
+
+        .plot-modal-nav button:disabled {
+            color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .plot-nav-jump {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .plot-nav-jump input {
+            width: 45px;
+            padding: 2px 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .plot-nav-jump input::-webkit-inner-spin-button,
+        .plot-nav-jump input::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .plot-nav-jump input[type=number] {
+            -moz-appearance: textfield;
+        }
+
+        .plot-nav-jump button {
+            padding: 2px 10px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .plot-nav-jump button:hover {
+            background: #f8f9fa;
+            border-color: #007bff;
+        }
+
+        .plot-modal-body {
+            overflow-y: auto;
+            padding: 14px 16px;
+            flex: 1;
+        }
+
+        .plot-columns {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .plot-column {
+            min-width: 0;
+        }
+
+        .plot-section {
+            margin-bottom: 14px;
+        }
+
+        .plot-section-title {
+            font-weight: bold;
+            font-size: 12px;
+            color: #555;
+            margin-bottom: 4px;
+        }
+
+        .plot-text-content {
+            background-color: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 12px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        .plot-json-content {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 250px;
+            overflow-y: auto;
+            margin: 0;
+        }
+
+        .plot-main-plot-section {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .plot-main-plot-section .plot-json-content {
+            max-height: 200px;
         }
 
         .imports-empty {
@@ -1420,6 +1667,8 @@
                             style="background-color: #dc3545;">批量删除</button>
                         <button class="btn btn-small" id="batchVerifyBtn" onclick="batchVerifyProjectIds()" disabled
                             style="background-color: #ff9800;">批量检验</button>
+                        <button class="btn btn-small" id="batchCheckBtn" onclick="batchCheckCredentials()" disabled
+                            style="background-color: #2196F3;">批量检测</button>
                         <button class="btn btn-small" onclick="refreshAllEmails()"
                             style="background-color: #17a2b8;">刷新所有邮箱</button>
                         <button class="btn btn-small" onclick="deduplicateByEmail()"
@@ -1566,6 +1815,9 @@
                         <button class="btn btn-small" id="antigravityBatchVerifyBtn"
                             onclick="batchVerifyAntigravityProjectIds()" disabled
                             style="background-color: #ff9800;">批量检验</button>
+                        <button class="btn btn-small" id="antigravityBatchCheckBtn"
+                            onclick="batchCheckAntigravityCredentials()" disabled
+                            style="background-color: #2196F3;">批量检测</button>
                         <button class="btn btn-small" onclick="refreshAllAntigravityEmails()"
                             style="background-color: #17a2b8;">刷新所有邮箱</button>
                         <button class="btn btn-small" onclick="deduplicateAntigravityByEmail()"
@@ -1800,6 +2052,7 @@
                             <option value="">全部</option>
                             <option value="parsing">解析中</option>
                             <option value="processing">处理中</option>
+                            <option value="paused">已暂停</option>
                             <option value="error">错误</option>
                             <option value="completed">已完成</option>
                         </select>
@@ -1820,6 +2073,27 @@
                     <span id="importsPageInfo" style="font-size:12px;color:#666;"></span>
                     <button id="importsNextBtn" onclick="loadImportsList(importsState.currentPage + 1)">下一页</button>
                 </div>
+
+                <!-- Plot Update Modal -->
+                <div id="plotUpdateModal" class="plot-modal-overlay" onclick="if(event.target===this)closePlotUpdateModal()">
+                    <div class="plot-modal">
+                        <div class="plot-modal-header">
+                            <h4 id="plotModalTitle"></h4>
+                            <button class="plot-modal-close" onclick="closePlotUpdateModal()">&times;</button>
+                        </div>
+                        <div class="plot-modal-nav">
+                            <button id="plotPrevBtn" onclick="navigatePlotUpdate(-1)" disabled>上一条</button>
+                            <span class="plot-nav-jump">
+                                <input id="plotJumpInput" type="number" min="1" value="0" onkeydown="if(event.key==='Enter')jumpToPlotUpdate()" />
+                                <span>/ <span id="plotTotalSpan">0</span></span>
+                                <button onclick="jumpToPlotUpdate()">跳转</button>
+                            </span>
+                            <button id="plotNextBtn" onclick="navigatePlotUpdate(1)" disabled>下一条</button>
+                        </div>
+                        <div class="plot-modal-body" id="plotUpdateContent">
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="statusSection"></div>
@@ -1832,6 +2106,27 @@
                         style="color: #007bff; text-decoration: none;">github.com/su-kaka/gcli2api</a></p>
                 <p style="margin: 4px 0; font-size: 12px; color: #dc3545; font-weight: 500;">⚠️ 禁止商业用途和倒卖 - 仅供学习使用 ⚠️
                 </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 验证URL弹窗 -->
+    <div id="validationUrlModal" class="modal" onclick="if(event.target===this)closeValidationUrlModal()" style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5);">
+        <div style="background-color:#fefefe; margin:20% auto; padding:20px; border-radius:8px; width:90%; max-width:400px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; font-size:16px;">需要验证</h3>
+                <span style="cursor:pointer; font-size:24px;" onclick="closeValidationUrlModal()">&times;</span>
+            </div>
+            <div style="margin-bottom:15px;">
+                <p style="margin:5px 0; color:#666; font-size:14px;">凭证文件: <strong id="validationFilename"></strong></p>
+                <p style="margin:10px 0; color:#dc3545; font-size:14px;">该凭证需要通过验证才能使用，请点击下方链接完成验证：</p>
+            </div>
+            <div style="background:#f8f9fa; padding:12px; border-radius:6px; margin-bottom:15px; word-break:break-all;">
+                <a id="validationLink" href="#" target="_blank" style="color:#007bff; text-decoration:underline; font-weight:bold; font-size:14px;"></a>
+                <p id="validationUrlDisplay" style="font-size:11px; color:#999; margin-top:8px; word-break:break-all;"></p>
+            </div>
+            <div style="text-align:right;">
+                <button onclick="closeValidationUrlModal()" style="padding:8px 20px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer;">关闭</button>
             </div>
         </div>
     </div>
