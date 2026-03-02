@@ -54,6 +54,7 @@ function createCredsManager(type) {
         currentErrorCodeFilter: 'all',
         currentCooldownFilter: 'all',
         statsData: { total: 0, normal: 0, disabled: 0 },
+        backendType: 'unknown',
 
         // API端点
         getEndpoint: (action) => {
@@ -68,7 +69,8 @@ function createCredsManager(type) {
                 refreshAllEmails: `./creds/refresh-all-emails`,
                 deduplicate: `./creds/deduplicate-by-email`,
                 verifyProject: `./creds/verify-project`,
-                quota: `./creds/quota`
+                quota: `./creds/quota`,
+                apiDetail: `./creds/api-detail`
             };
             return endpoints[action] || '';
         },
@@ -106,6 +108,7 @@ function createCredsManager(type) {
                 const data = await response.json();
 
                 if (response.ok) {
+                    this.backendType = data.backend_type || 'unknown';
                     this.data = {};
                     data.items.forEach(item => {
                         this.data[item.filename] = {
@@ -609,6 +612,7 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn view" onclick="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}CredDetails('${pathId}')">查看内容</button>
         <button class="cred-btn download" onclick="download${managerType === 'antigravity' ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
         <button class="cred-btn email" onclick="fetch${managerType === 'antigravity' ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
+        ${manager.backendType === 'mysql' ? `<button class="cred-btn api-detail" onclick="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}ApiDetail('${pathId}')" title="查看/编辑扩展API详情">API详情</button>` : ''}
         ${managerType === 'antigravity' ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
         <button class="cred-btn" style="background-color: #2196F3;" onclick="check${managerType === 'antigravity' ? 'Antigravity' : ''}Credential('${filename}')" title="使用API调用检测凭证可用性">检测</button>
         <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${managerType === 'antigravity' ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
@@ -644,6 +648,7 @@ function createCredCard(credInfo, manager) {
             </div>
         </div>
         ` : ''}
+        ${manager.backendType === 'mysql' ? `<div class="cred-api-detail" id="apidetail-${pathId}" style="display: none;"></div>` : ''}
     `;
 
     // 添加事件监听
@@ -706,6 +711,156 @@ async function toggleCredDetailsCommon(pathId, manager) {
                 contentDiv.textContent = '加载文件内容失败: ' + error.message;
             }
         }
+    }
+}
+
+// =====================================================================
+// API详情展开面板
+// =====================================================================
+async function toggleApiDetail(pathId) {
+    await toggleApiDetailCommon(pathId, AppState.creds);
+}
+
+async function toggleAntigravityApiDetail(pathId) {
+    await toggleApiDetailCommon(pathId, AppState.antigravityCreds);
+}
+
+async function toggleApiDetailCommon(pathId, manager) {
+    const container = document.getElementById('apidetail-' + pathId);
+    if (!container) return;
+
+    const isShowing = container.style.display === 'block';
+
+    if (isShowing) {
+        container.style.display = 'none';
+    } else {
+        container.style.display = 'block';
+
+        // Lazy load: 首次展开时加载数据
+        if (!container.getAttribute('data-loaded')) {
+            container.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">正在加载 API 详情...</div>';
+
+            // 从卡片中找到文件名
+            const card = container.closest('.cred-card');
+            const filename = card ? card.querySelector('[data-filename]')?.getAttribute('data-filename') : null;
+            if (!filename) {
+                container.innerHTML = '<div style="color: red; padding: 10px;">无法获取文件名</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${manager.getEndpoint('apiDetail')}/${encodeURIComponent(filename)}`, {
+                    headers: getAuthHeaders()
+                });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    renderApiDetailForm(container, filename, data.detail, manager);
+                    container.setAttribute('data-loaded', 'true');
+                } else {
+                    container.innerHTML = `<div style="color: red; padding: 10px;">加载失败: ${data.detail || data.error || '未知错误'}</div>`;
+                }
+            } catch (error) {
+                container.innerHTML = `<div style="color: red; padding: 10px;">网络错误: ${error.message}</div>`;
+            }
+        }
+    }
+}
+
+function renderApiDetailForm(container, filename, detail, manager) {
+    const formId = 'apidetail-form-' + btoa(encodeURIComponent(filename)).replace(/[+/=]/g, '_');
+    const mode = manager.type === 'antigravity' ? 'antigravity' : 'normal';
+
+    const fields = [
+        { key: 'password', label: '密码', type: 'text', placeholder: 'CLI凭证密码' },
+        { key: 'backup_email', label: '备用邮箱', type: 'email', placeholder: '备用邮箱地址' },
+        { key: 'cli_token', label: 'CLI令牌', type: 'text', placeholder: 'CLI认证令牌' },
+        { key: 'phone', label: '手机号', type: 'tel', placeholder: '手机号码' },
+        { key: 'remark', label: '备注', type: 'text', placeholder: '备注信息' },
+    ];
+
+    let fieldsHTML = fields.map(f => `
+        <div style="margin-bottom: 8px;">
+            <label style="display: block; font-size: 12px; font-weight: bold; color: #555; margin-bottom: 3px;">${f.label}</label>
+            <input type="${f.type}" name="${f.key}" value="${(detail[f.key] || '').replace(/"/g, '&quot;')}"
+                   placeholder="${f.placeholder}"
+                   style="width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
+        </div>
+    `).join('');
+
+    container.innerHTML = `
+        <div class="cred-api-detail-content">
+            <div style="background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%); color: white; padding: 12px; border-radius: 6px 6px 0 0; margin: -10px -10px 12px -10px;">
+                <h4 style="margin: 0; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+                    <span>API 详情</span>
+                </h4>
+                <div style="font-size: 11px; opacity: 0.9; margin-top: 3px;">文件: ${filename}</div>
+            </div>
+            <form id="${formId}" onsubmit="return false;">
+                ${fieldsHTML}
+                <div style="display: flex; gap: 8px; margin-top: 10px;">
+                    <button type="button" class="cred-btn api-detail" onclick="saveApiDetail('${filename}', '${formId}', '${mode}')" style="flex: 1;">保存</button>
+                    <button type="button" class="cred-btn" style="background-color: #6c757d; flex: 1;" onclick="reloadApiDetail('${filename}', this, '${mode}')">刷新</button>
+                </div>
+            </form>
+        </div>
+    `;
+}
+
+async function saveApiDetail(filename, formId, mode) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+
+    const manager = mode === 'antigravity' ? AppState.antigravityCreds : AppState.creds;
+    const payload = { filename };
+
+    form.querySelectorAll('input[name]').forEach(input => {
+        payload[input.name] = input.value;
+    });
+
+    try {
+        const response = await fetch(manager.getEndpoint('apiDetail'), {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showStatus('API 详情已保存', 'success');
+        } else {
+            showStatus(`保存失败: ${data.detail || data.error || '未知错误'}`, 'error');
+        }
+    } catch (error) {
+        showStatus(`网络错误: ${error.message}`, 'error');
+    }
+}
+
+async function reloadApiDetail(filename, btn, mode) {
+    const manager = mode === 'antigravity' ? AppState.antigravityCreds : AppState.creds;
+
+    // 找到最近的容器并重置 loaded 标记
+    const container = btn.closest('.cred-api-detail');
+    if (!container) return;
+
+    container.removeAttribute('data-loaded');
+    container.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">正在刷新...</div>';
+
+    try {
+        const response = await fetch(`${manager.getEndpoint('apiDetail')}/${encodeURIComponent(filename)}`, {
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            renderApiDetailForm(container, filename, data.detail, manager);
+            container.setAttribute('data-loaded', 'true');
+            showStatus('API 详情已刷新', 'success');
+        } else {
+            container.innerHTML = `<div style="color: red; padding: 10px;">刷新失败: ${data.detail || data.error || '未知错误'}</div>`;
+        }
+    } catch (error) {
+        container.innerHTML = `<div style="color: red; padding: 10px;">网络错误: ${error.message}</div>`;
     }
 }
 
@@ -1200,6 +1355,8 @@ function renderImportCard(item) {
 
     let deleteHtml = `<button class="import-delete-btn" onclick="deleteImport('${item.novel_id}', this)">删除</button>`;
 
+    let coverHtml = `<button class="import-cover-btn" onclick="uploadCoverImage('${item.novel_id}')">替换图片</button>`;
+
     return `<div class="import-card">
         <div class="import-card-header">
             <div>
@@ -1221,7 +1378,7 @@ function renderImportCard(item) {
         ${errorHtml}
         <div class="import-card-footer">
             <span>创建: ${createdAt}${completedAt ? ' | 完成: ' + completedAt : ''}</span>
-            <span class="import-card-actions">${viewDataHtml}${actionHtml}${deleteHtml}</span>
+            <span class="import-card-actions">${viewDataHtml}${coverHtml}${actionHtml}${deleteHtml}</span>
         </div>
     </div>`;
 }
@@ -1321,6 +1478,34 @@ async function deleteImport(importId, btn) {
             btn.textContent = '删除';
         }
     }
+}
+
+function uploadCoverImage(novelId) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+        const file = input.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('cover_image', file);
+        showStatus('正在上传封面...', 'success');
+        try {
+            const resp = await fetch(`./novel/imports/${novelId}/cover`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${AppState.authToken}` },
+                body: formData
+            });
+            const json = await resp.json();
+            if (!resp.ok) {
+                throw new Error(json.message || json.detail || '上传失败');
+            }
+            showStatus('封面上传成功', 'success');
+        } catch (err) {
+            showStatus(`封面上传失败: ${err.message}`, 'error');
+        }
+    };
+    input.click();
 }
 
 // =====================================================================

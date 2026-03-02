@@ -326,6 +326,58 @@ class MySQLManager:
             log.error(f"Error getting credential {filename}: {e}")
             return None
 
+    async def get_api_detail(self, filename: str) -> Optional[Dict[str, Any]]:
+        """获取凭证的扩展 API 详情（password, backup_email, cli_token, phone, remark）"""
+        self._ensure_initialized()
+        filename = self._strip_ext(filename)
+
+        try:
+            async with self._pool.acquire() as conn:
+                async with conn.cursor(aiomysql.DictCursor) as cur:
+                    await cur.execute(
+                        "SELECT password, backup_email, cli_token, phone, remark FROM api_keys WHERE id = %s",
+                        (filename,),
+                    )
+                    row = await cur.fetchone()
+                    if row:
+                        return {k: (v or "") for k, v in row.items()}
+                    return None
+
+        except Exception as e:
+            log.error(f"Error getting api detail for {filename}: {e}")
+            return None
+
+    async def update_api_detail(self, filename: str, detail_data: Dict[str, Any]) -> bool:
+        """更新凭证的扩展 API 详情，只允许白名单字段，空字符串存为 NULL"""
+        self._ensure_initialized()
+        filename = self._strip_ext(filename)
+
+        allowed_fields = {"password", "backup_email", "cli_token", "phone", "remark"}
+        set_clauses = []
+        values = []
+
+        for key, value in detail_data.items():
+            if key in allowed_fields:
+                set_clauses.append(f"{key} = %s")
+                values.append(value if value else None)
+
+        if not set_clauses:
+            return True
+
+        set_clauses.append("updated_at = NOW()")
+        values.append(filename)
+
+        try:
+            async with self._pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    sql = f"UPDATE api_keys SET {', '.join(set_clauses)} WHERE id = %s"
+                    await cur.execute(sql, values)
+                    return cur.rowcount > 0
+
+        except Exception as e:
+            log.error(f"Error updating api detail for {filename}: {e}")
+            return False
+
     async def list_credentials(self, mode: str = "geminicli") -> List[str]:
         """列出所有凭证 ID"""
         self._ensure_initialized()

@@ -45,6 +45,7 @@ from .models import (
     AuthCallbackUrlRequest,
     CredFileActionRequest,
     CredFileBatchActionRequest,
+    CredApiDetailUpdateRequest,
 )
 from src.storage_adapter import get_storage_adapter
 from src.utils import verify_panel_token, GEMINICLI_USER_AGENT, ANTIGRAVITY_USER_AGENT
@@ -620,6 +621,7 @@ async def get_creds_status_common(
             "limit": limit,
             "has_more": (offset + limit) < result["total"],
             "stats": result.get("stats", {"total": 0, "normal": 0, "disabled": 0}),
+            "backend_type": backend_type,
         })
 
     # 回退到传统方式（MongoDB/其他后端）
@@ -669,6 +671,7 @@ async def get_creds_status_common(
         "offset": offset,
         "limit": limit,
         "has_more": (offset + limit) < total_count,
+        "backend_type": backend_type,
     })
 
 
@@ -1021,6 +1024,60 @@ async def get_cred_detail(
         raise
     except Exception as e:
         log.error(f"获取凭证详情失败 {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/creds/api-detail/{filename:path}")
+async def get_cred_api_detail(
+    filename: str,
+    token: str = Depends(verify_panel_token),
+):
+    """获取凭证扩展 API 详情（仅 MySQL 后端可用）"""
+    try:
+        storage_adapter = await get_storage_adapter()
+        backend_info = await storage_adapter.get_backend_info()
+        if backend_info.get("backend_type") != "mysql":
+            raise HTTPException(status_code=400, detail="此功能仅 MySQL 后端可用")
+
+        detail = await storage_adapter._backend.get_api_detail(filename)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="凭证不存在")
+
+        return JSONResponse(content={"success": True, "detail": detail})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"获取 API 详情失败 {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/creds/api-detail")
+async def update_cred_api_detail(
+    request: CredApiDetailUpdateRequest,
+    token: str = Depends(verify_panel_token),
+):
+    """更新凭证扩展 API 详情（仅 MySQL 后端可用）"""
+    try:
+        storage_adapter = await get_storage_adapter()
+        backend_info = await storage_adapter.get_backend_info()
+        if backend_info.get("backend_type") != "mysql":
+            raise HTTPException(status_code=400, detail="此功能仅 MySQL 后端可用")
+
+        from src.models import model_to_dict
+        detail_data = model_to_dict(request)
+        detail_data.pop("filename", None)
+
+        result = await storage_adapter._backend.update_api_detail(request.filename, detail_data)
+        if not result:
+            raise HTTPException(status_code=404, detail="凭证不存在或更新失败")
+
+        return JSONResponse(content={"success": True, "message": "API 详情已更新"})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"更新 API 详情失败 {request.filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

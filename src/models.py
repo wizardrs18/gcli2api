@@ -375,3 +375,12 @@ class CredFileBatchActionRequest(BaseModel):
     filenames: List[str]  # 批量操作的文件名列表
 
 
+class CredApiDetailUpdateRequest(BaseModel):
+    filename: str
+    password: Optional[str] = None
+    backup_email: Optional[str] = None
+    cli_token: Optional[str] = None
+    phone: Optional[str] = None
+    remark: Optional[str] = None
+
+

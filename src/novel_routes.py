@@ -2,12 +2,12 @@
 
 import json
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 
 from config import get_novel_backend_url, get_novel_admin_api_key
 from log import log
-from src.httpx_client import get_async, post_async
+from src.httpx_client import get_async, post_async, http_client
 from src.storage_adapter import get_storage_adapter
 from src.utils import verify_panel_token
 
@@ -215,4 +215,31 @@ async def delete_import(
         return JSONResponse(
             content={"detail": f"删除失败: {e}"},
             status_code=500,
+        )
+
+
+@router.post("/imports/{novel_id}/cover")
+async def upload_cover(
+    novel_id: str,
+    cover_image: UploadFile = File(...),
+    _token: str = Depends(verify_panel_token),
+):
+    """Forward cover image upload to novel_backend admin API"""
+    backend_url = await get_novel_backend_url()
+    admin_key = await get_novel_admin_api_key()
+
+    url = f"{backend_url}/api/v1/admin/novels/{novel_id}/cover"
+    headers = {"X-Admin-Key": admin_key}
+
+    try:
+        content = await cover_image.read()
+        files = {"cover_image": (cover_image.filename, content, cover_image.content_type)}
+        async with http_client.get_client(timeout=60.0) as client:
+            resp = await client.post(url, headers=headers, files=files)
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        log.error(f"Failed to upload cover for novel {novel_id}: {e}")
+        return JSONResponse(
+            content={"detail": f"封面上传失败: {e}"},
+            status_code=502,
         )
