@@ -84,6 +84,29 @@ async def pause_import(
         )
 
 
+@router.post("/imports/{novel_id}/reimport")
+async def reimport_novel(
+    novel_id: str,
+    _token: str = Depends(verify_panel_token),
+):
+    """Forward reimport request to novel_backend admin API"""
+    backend_url = await get_novel_backend_url()
+    admin_key = await get_novel_admin_api_key()
+
+    url = f"{backend_url}/api/v1/admin/import/{novel_id}/reimport"
+    headers = {"X-Admin-Key": admin_key}
+
+    try:
+        resp = await post_async(url, headers=headers)
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        log.error(f"Failed to forward reimport request: {e}")
+        return JSONResponse(
+            content={"detail": "Failed to connect to novel backend"},
+            status_code=502,
+        )
+
+
 @router.get("/imports/{novel_id}/updates")
 async def get_import_updates(
     novel_id: str,

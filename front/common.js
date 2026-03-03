@@ -1357,6 +1357,11 @@ function renderImportCard(item) {
 
     let coverHtml = `<button class="import-cover-btn" onclick="uploadCoverImage('${item.novel_id}')">替换图片</button>`;
 
+    let reimportHtml = '';
+    if (item.status !== 'waiting') {
+        reimportHtml = `<button class="import-reimport-btn" onclick="reimportNovel('${item.novel_id}', this)">重新导入</button>`;
+    }
+
     return `<div class="import-card">
         <div class="import-card-header">
             <div>
@@ -1378,7 +1383,7 @@ function renderImportCard(item) {
         ${errorHtml}
         <div class="import-card-footer">
             <span>创建: ${createdAt}${completedAt ? ' | 完成: ' + completedAt : ''}</span>
-            <span class="import-card-actions">${viewDataHtml}${coverHtml}${actionHtml}${deleteHtml}</span>
+            <span class="import-card-actions">${viewDataHtml}${coverHtml}${reimportHtml}${actionHtml}${deleteHtml}</span>
         </div>
     </div>`;
 }
@@ -1476,6 +1481,34 @@ async function deleteImport(importId, btn) {
         if (btn) {
             btn.disabled = false;
             btn.textContent = '删除';
+        }
+    }
+}
+
+async function reimportNovel(novelId, btn) {
+    if (!confirm('确定要重新导入这个小说吗？这将清除所有章节和剧情数据，从零开始重新导入！')) {
+        return;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '重新导入中...';
+    }
+    try {
+        const resp = await fetch(`./novel/imports/${novelId}/reimport`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+            throw new Error(json.message || json.detail || '重新导入失败');
+        }
+        showStatus('重新导入任务已提交', 'success');
+        loadImportsList(importsState.currentPage);
+    } catch (err) {
+        showStatus(`重新导入失败: ${err.message}`, 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '重新导入';
         }
     }
 }
