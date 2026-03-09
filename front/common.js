@@ -243,7 +243,7 @@ function createCredsManager(type) {
             const selectedCount = this.selectedFiles.size;
             document.getElementById(this.getElementId('SelectedCount')).textContent = `已选择 ${selectedCount} 项`;
 
-            const batchBtns = ['Enable', 'Disable', 'Delete', 'Verify', 'Check'].map(action =>
+            const batchBtns = ['Enable', 'Disable', 'Delete', 'Verify', 'Check', 'CheckPro'].map(action =>
                 document.getElementById(this.getElementId(`Batch${action}Btn`))
             );
             batchBtns.forEach(btn => btn && (btn.disabled = selectedCount === 0));
@@ -615,6 +615,7 @@ function createCredCard(credInfo, manager) {
         ${manager.backendType === 'mysql' ? `<button class="cred-btn api-detail" onclick="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}ApiDetail('${pathId}')" title="查看/编辑扩展API详情">API详情</button>` : ''}
         ${managerType === 'antigravity' ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
         <button class="cred-btn" style="background-color: #2196F3;" onclick="check${managerType === 'antigravity' ? 'Antigravity' : ''}Credential('${filename}')" title="使用API调用检测凭证可用性">检测</button>
+        ${managerType !== 'antigravity' ? `<button class="cred-btn" style="background-color: #9c27b0;" onclick="checkCredentialPro('${filename}')" title="使用gemini-3.1-pro-preview模型检测凭证可用性">检测Pro</button>` : ''}
         <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${managerType === 'antigravity' ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
@@ -2594,6 +2595,34 @@ async function checkCredential(filename) {
     }
 }
 
+async function checkCredentialPro(filename) {
+    try {
+        showStatus('正在使用 gemini-3.1-pro-preview 检测凭证可用性，请稍候...', 'info');
+
+        const response = await fetch(`./creds/check/${encodeURIComponent(filename)}?model=gemini-3.1-pro-preview`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showStatus(`Pro检测成功！凭证 ${filename} 可用`, 'success');
+            alert(`Pro检测成功！\n\n文件: ${filename}\n${data.message}`);
+            await AppState.creds.refresh();
+        } else if (data.status_code === 403 && data.validation_url) {
+            showValidationUrlModal(filename, data.validation_url, data.link_text || '点击验证');
+            await AppState.creds.refresh();
+        } else {
+            showStatus(`Pro检测失败: ${data.message}`, 'error');
+            alert(`Pro检测失败\n\n文件: ${filename}\n${data.message}`);
+            await AppState.creds.refresh();
+        }
+    } catch (error) {
+        showStatus(`Pro检测失败: ${error.message}`, 'error');
+        alert(`Pro检测失败: ${error.message}`);
+    }
+}
+
 async function checkAntigravityCredential(filename) {
     try {
         showStatus('正在检测Antigravity凭证可用性，请稍候...', 'info');
@@ -2707,6 +2736,76 @@ async function batchCheckCredentials() {
         showStatus(`全部检测失败！失败 ${failCount}/${selectedFiles.length} 个凭证`, 'error');
     } else {
         showStatus(`批量检测完成：成功 ${successCount}/${selectedFiles.length} 个，失败 ${failCount} 个`, 'info');
+    }
+}
+
+async function batchCheckCredentialsPro() {
+    const selectedFiles = Array.from(AppState.creds.selectedFiles);
+    if (selectedFiles.length === 0) {
+        showStatus('请先选择要检测的凭证', 'error');
+        alert('请先选择要检测的凭证');
+        return;
+    }
+
+    if (!confirm(`确定要使用 gemini-3.1-pro-preview 批量检测 ${selectedFiles.length} 个凭证吗？\n\n将并行检测以加快速度。`)) {
+        return;
+    }
+
+    showStatus(`正在使用 gemini-3.1-pro-preview 并行检测 ${selectedFiles.length} 个凭证，请稍候...`, 'info');
+
+    const promises = selectedFiles.map(async (filename) => {
+        try {
+            const response = await fetch(`./creds/check/${encodeURIComponent(filename)}?model=gemini-3.1-pro-preview`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            });
+            const data = await response.json();
+            return { filename, ...data };
+        } catch (error) {
+            return { filename, success: false, message: error.message };
+        }
+    });
+
+    const results = await Promise.all(promises);
+
+    let successCount = 0;
+    let failCount = 0;
+    const validationUrls = [];
+    const resultMessages = [];
+
+    results.forEach(result => {
+        if (result.success) {
+            successCount++;
+            resultMessages.push(`${result.filename}: 可用`);
+        } else {
+            failCount++;
+            resultMessages.push(`${result.filename}: ${result.message || '失败'}`);
+            if (result.status_code === 403 && result.validation_url) {
+                validationUrls.push({ filename: result.filename, url: result.validation_url, linkText: result.link_text || '点击验证' });
+            }
+        }
+    });
+
+    await AppState.creds.refresh();
+
+    if (validationUrls.length > 0) {
+        let validationMsg = `Pro批量检测完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n\n以下凭证需要验证（${validationUrls.length}个）:\n`;
+        validationUrls.forEach(v => {
+            validationMsg += `\n${v.filename}: ${v.url}`;
+        });
+        alert(validationMsg);
+        showValidationUrlModal(validationUrls[0].filename, validationUrls[0].url, validationUrls[0].linkText);
+    } else {
+        const summary = `Pro批量检测完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${resultMessages.join('\n')}`;
+        alert(summary);
+    }
+
+    if (failCount === 0) {
+        showStatus(`Pro全部检测成功！成功 ${successCount}/${selectedFiles.length} 个凭证`, 'success');
+    } else if (successCount === 0) {
+        showStatus(`Pro全部检测失败！失败 ${failCount}/${selectedFiles.length} 个凭证`, 'error');
+    } else {
+        showStatus(`Pro批量检测完成：成功 ${successCount}/${selectedFiles.length} 个，失败 ${failCount} 个`, 'info');
     }
 }
 

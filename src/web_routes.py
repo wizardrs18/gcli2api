@@ -1696,7 +1696,7 @@ def extract_validation_url(error_response: dict):
     return None
 
 
-async def check_credential_common(filename: str, mode: str = "geminicli") -> JSONResponse:
+async def check_credential_common(filename: str, mode: str = "geminicli", model: str = "gemini-2.5-flash") -> JSONResponse:
     """使用轻量级API调用检测凭证可用性"""
     mode = validate_mode(mode)
 
@@ -1742,7 +1742,7 @@ async def check_credential_common(filename: str, mode: str = "geminicli") -> JSO
         "User-Agent": user_agent,
     }
     payload = {
-        "model": "gemini-2.5-flash",
+        "model": model,
         "project": project_id,
         "request": {
             "generationConfig": {"maxOutputTokens": 1},
@@ -1812,14 +1812,15 @@ async def check_credential_common(filename: str, mode: str = "geminicli") -> JSO
 async def check_credential(
     filename: str,
     token: str = Depends(verify_panel_token),
-    mode: str = "geminicli"
+    mode: str = "geminicli",
+    model: str = "gemini-2.5-flash"
 ):
     """
     使用轻量级API调用检测凭证可用性
     """
     try:
         mode = validate_mode(mode)
-        return await check_credential_common(filename, mode=mode)
+        return await check_credential_common(filename, mode=mode, model=model)
     except HTTPException:
         raise
     except Exception as e:
