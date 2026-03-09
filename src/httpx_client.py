@@ -75,6 +75,19 @@ async def post_async(
         return await client.post(url, data=data, json=json, headers=headers)
 
 
+async def put_async(
+    url: str,
+    data: Any = None,
+    json: Any = None,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: float = 600.0,
+    **kwargs,
+) -> httpx.Response:
+    """通用异步PUT请求"""
+    async with http_client.get_client(timeout=timeout, **kwargs) as client:
+        return await client.put(url, data=data, json=json, headers=headers)
+
+
 async def stream_post_async(
     url: str,
     body: Dict[str, Any],

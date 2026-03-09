@@ -2,12 +2,12 @@
 
 import json
 
-from fastapi import APIRouter, Depends, Query, UploadFile, File
+from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 
 from config import get_novel_backend_url, get_novel_admin_api_key
 from log import log
-from src.httpx_client import get_async, post_async, http_client
+from src.httpx_client import get_async, post_async, put_async, http_client
 from src.storage_adapter import get_storage_adapter
 from src.utils import verify_panel_token
 
@@ -264,5 +264,49 @@ async def upload_cover(
         log.error(f"Failed to upload cover for novel {novel_id}: {e}")
         return JSONResponse(
             content={"detail": f"封面上传失败: {e}"},
+            status_code=502,
+        )
+
+
+@router.get("/app-version")
+async def get_app_version(
+    _token: str = Depends(verify_panel_token),
+):
+    """Get current app version config from novel_backend"""
+    backend_url = await get_novel_backend_url()
+
+    url = f"{backend_url}/api/v1/app/version"
+
+    try:
+        resp = await get_async(url)
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        log.error(f"Failed to get app version: {e}")
+        return JSONResponse(
+            content={"detail": "Failed to connect to novel backend"},
+            status_code=502,
+        )
+
+
+@router.put("/app-version")
+async def update_app_version(
+    request: Request,
+    _token: str = Depends(verify_panel_token),
+):
+    """Update app version config via novel_backend admin API"""
+    backend_url = await get_novel_backend_url()
+    admin_key = await get_novel_admin_api_key()
+
+    url = f"{backend_url}/api/v1/admin/app-version"
+    headers = {"X-Admin-Key": admin_key}
+
+    try:
+        body = await request.json()
+        resp = await put_async(url, json=body, headers=headers)
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        log.error(f"Failed to update app version: {e}")
+        return JSONResponse(
+            content={"detail": "Failed to connect to novel backend"},
             status_code=502,
         )

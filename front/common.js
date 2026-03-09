@@ -1211,6 +1211,8 @@ async function loadDashboardData() {
         if (timeEl) timeEl.textContent = 'Updated: ' + new Date().toLocaleString();
         if (content) content.style.display = 'block';
 
+        loadAppVersion();
+
     } catch (err) {
         if (errorDiv) {
             errorDiv.innerHTML = `<div class="dashboard-error">${err.message}</div>`;
@@ -1219,6 +1221,54 @@ async function loadDashboardData() {
     } finally {
         if (loading) loading.style.display = 'none';
     }
+}
+
+async function loadAppVersion() {
+    try {
+        const resp = await fetch('./novel/app-version', { headers: getAuthHeaders() });
+        if (!resp.ok) return;
+        const json = await resp.json();
+        const data = json.data || json;
+        if (data.latest_version != null) document.getElementById('appLatestVersion').value = data.latest_version;
+        if (data.min_version != null) document.getElementById('appMinVersion').value = data.min_version;
+        if (data.update_url != null) document.getElementById('appUpdateUrl').value = data.update_url;
+        if (data.update_message != null) document.getElementById('appUpdateMessage').value = data.update_message;
+    } catch (e) {
+        console.error('Failed to load app version:', e);
+    }
+}
+
+async function saveAppVersion() {
+    const statusEl = document.getElementById('appVersionStatus');
+    statusEl.textContent = 'Saving...';
+    statusEl.style.color = '#666';
+
+    const body = {
+        latest_version: document.getElementById('appLatestVersion').value,
+        min_version: document.getElementById('appMinVersion').value,
+        update_url: document.getElementById('appUpdateUrl').value,
+        update_message: document.getElementById('appUpdateMessage').value,
+    };
+
+    try {
+        const resp = await fetch('./novel/app-version', {
+            method: 'PUT',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (resp.ok) {
+            statusEl.textContent = 'Saved!';
+            statusEl.style.color = 'green';
+        } else {
+            const err = await resp.json();
+            statusEl.textContent = err.detail || 'Save failed';
+            statusEl.style.color = 'red';
+        }
+    } catch (e) {
+        statusEl.textContent = 'Network error';
+        statusEl.style.color = 'red';
+    }
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
 }
 
 // =====================================================================
@@ -2936,7 +2986,7 @@ async function deduplicateByEmail() {
             const msg = `去重完成：删除 ${data.deleted_count} 个重复凭证，保留 ${data.kept_count} 个凭证（${data.unique_emails_count} 个唯一邮箱）`;
             showStatus(msg, 'success');
             await AppState.creds.refresh();
-            
+
             // 显示详细信息
             if (data.duplicate_groups && data.duplicate_groups.length > 0) {
                 let details = '去重详情：\n\n';
@@ -2967,7 +3017,7 @@ async function deduplicateAntigravityByEmail() {
             const msg = `去重完成：删除 ${data.deleted_count} 个重复凭证，保留 ${data.kept_count} 个凭证（${data.unique_emails_count} 个唯一邮箱）`;
             showStatus(msg, 'success');
             await AppState.antigravityCreds.refresh();
-            
+
             // 显示详细信息
             if (data.duplicate_groups && data.duplicate_groups.length > 0) {
                 let details = '去重详情：\n\n';

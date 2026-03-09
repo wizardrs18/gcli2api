@@ -2286,6 +2286,29 @@
                         <h4>Community</h4>
                         <div class="dashboard-grid" id="dashCommunity"></div>
                     </div>
+                    <div class="dashboard-section">
+                        <h4>App Version</h4>
+                        <div style="max-width:500px;">
+                            <div class="form-group">
+                                <label>Latest Version</label>
+                                <input type="text" id="appLatestVersion" placeholder="x.x.x">
+                            </div>
+                            <div class="form-group">
+                                <label>Min Version</label>
+                                <input type="text" id="appMinVersion" placeholder="x.x.x">
+                            </div>
+                            <div class="form-group">
+                                <label>Update URL</label>
+                                <input type="text" id="appUpdateUrl" placeholder="https://...">
+                            </div>
+                            <div class="form-group">
+                                <label>Update Message</label>
+                                <textarea id="appUpdateMessage" rows="3" style="width:100%;padding:10px;border:2px solid #ddd;border-radius:5px;font-size:14px;box-sizing:border-box;resize:vertical;"></textarea>
+                            </div>
+                            <button onclick="saveAppVersion()" style="padding:8px 24px;background:#4285f4;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:14px;">Save</button>
+                            <span id="appVersionStatus" style="margin-left:12px;font-size:14px;"></span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
