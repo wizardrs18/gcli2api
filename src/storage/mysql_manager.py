@@ -507,7 +507,7 @@ class MySQLManager:
                 async with conn.cursor(aiomysql.DictCursor) as cur:
                     await cur.execute("""
                         SELECT is_disabled, last_error_code, last_success_at,
-                               user_email, cooldown_until
+                               user_email, cooldown_until, model_cooldowns
                         FROM api_keys WHERE id = %s
                     """, (filename,))
                     row = await cur.fetchone()
@@ -540,7 +540,7 @@ class MySQLManager:
                 async with conn.cursor(aiomysql.DictCursor) as cur:
                     await cur.execute("""
                         SELECT id, is_disabled, last_error_code, last_success_at,
-                               user_email, cooldown_until
+                               user_email, cooldown_until, model_cooldowns
                         FROM api_keys
                         WHERE credential_type = 'OAUTH'
                     """)
@@ -553,6 +553,30 @@ class MySQLManager:
 
         except Exception as e:
             log.error(f"Error getting all credential states: {e}")
+            return {}
+
+    @staticmethod
+    def _parse_model_cooldowns_json(raw) -> Dict[str, float]:
+        """解析 model_cooldowns 字段（JSON 字符串或 dict），将 ISO 8601 时间戳转为 Unix 时间戳"""
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(data, dict):
+                return {}
+            current_time = time.time()
+            result = {}
+            for model, val in data.items():
+                if isinstance(val, (int, float)):
+                    ts = float(val)
+                elif isinstance(val, str):
+                    ts = datetime.fromisoformat(val).timestamp()
+                else:
+                    continue
+                if ts > current_time:
+                    result[model] = ts
+            return result
+        except Exception:
             return {}
 
     @staticmethod
@@ -569,14 +593,14 @@ class MySQLManager:
         if last_success_at and isinstance(last_success_at, datetime):
             last_success = last_success_at.timestamp()
 
-        # Convert cooldown_until to model_cooldowns format
-        model_cooldowns = {}
-        cooldown_until = row.get("cooldown_until")
-        if cooldown_until and isinstance(cooldown_until, datetime):
-            cd_ts = cooldown_until.timestamp()
-            if cd_ts > time.time():
-                # Use a generic key since MySQL doesn't track per-model cooldowns
-                model_cooldowns["_global"] = cd_ts
+        # 优先使用 model_cooldowns 列（per-model），回退到 cooldown_until（global）
+        model_cooldowns = MySQLManager._parse_model_cooldowns_json(row.get("model_cooldowns"))
+        if not model_cooldowns:
+            cooldown_until = row.get("cooldown_until")
+            if cooldown_until and isinstance(cooldown_until, datetime):
+                cd_ts = cooldown_until.timestamp()
+                if cd_ts > time.time():
+                    model_cooldowns["_global"] = cd_ts
 
         return {
             "disabled": bool(row.get("is_disabled", 0)),
@@ -661,7 +685,7 @@ class MySQLManager:
 
                     await cur.execute(
                         f"""SELECT id, is_disabled, last_error_code, last_success_at,
-                                   user_email, cooldown_until,
+                                   user_email, cooldown_until, model_cooldowns,
                                    total_requests, successful_requests, failed_requests
                             FROM api_keys
                             WHERE {where_sql}
@@ -679,11 +703,12 @@ class MySQLManager:
                         if row.get("last_success_at") and isinstance(row["last_success_at"], datetime):
                             last_success_val = row["last_success_at"].timestamp()
 
-                        active_cooldowns = {}
-                        if row.get("cooldown_until") and isinstance(row["cooldown_until"], datetime):
-                            cd_ts = row["cooldown_until"].timestamp()
-                            if cd_ts > current_time:
-                                active_cooldowns["_global"] = cd_ts
+                        active_cooldowns = self._parse_model_cooldowns_json(row.get("model_cooldowns"))
+                        if not active_cooldowns:
+                            if row.get("cooldown_until") and isinstance(row["cooldown_until"], datetime):
+                                cd_ts = row["cooldown_until"].timestamp()
+                                if cd_ts > current_time:
+                                    active_cooldowns["_global"] = cd_ts
 
                         items.append({
                             "filename": self._add_ext(row["id"]),

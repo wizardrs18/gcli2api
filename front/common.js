@@ -576,9 +576,13 @@ function createCredCard(credInfo, manager) {
     if (credInfo.model_cooldowns && Object.keys(credInfo.model_cooldowns).length > 0) {
         const currentTime = Date.now() / 1000;
         const activeCooldowns = Object.entries(credInfo.model_cooldowns)
-            .filter(([, until]) => until > currentTime)
+            .filter(([, until]) => {
+                const ts = typeof until === 'string' ? new Date(until).getTime() / 1000 : until;
+                return ts > currentTime;
+            })
             .map(([model, until]) => {
-                const remaining = Math.max(0, Math.floor(until - currentTime));
+                const ts = typeof until === 'string' ? new Date(until).getTime() / 1000 : until;
+                const remaining = Math.max(0, Math.floor(ts - currentTime));
                 const shortModel = model.replace('gemini-', '').replace('-exp', '')
                     .replace('2.0-', '2-').replace('1.5-', '1.5-');
                 return {
@@ -589,14 +593,9 @@ function createCredCard(credInfo, manager) {
             });
 
         if (activeCooldowns.length > 0) {
-            activeCooldowns.slice(0, 2).forEach(item => {
+            activeCooldowns.forEach(item => {
                 statusBadges += `<span class="cooldown-badge" style="background-color: #17a2b8;" title="模型: ${item.fullModel}">🔧 ${item.model}: ${item.time}</span>`;
             });
-            if (activeCooldowns.length > 2) {
-                const remaining = activeCooldowns.length - 2;
-                const remainingModels = activeCooldowns.slice(2).map(i => `${i.fullModel}: ${i.time}`).join('\n');
-                statusBadges += `<span class="cooldown-badge" style="background-color: #17a2b8;" title="其他模型:\n${remainingModels}">+${remaining}</span>`;
-            }
         }
     }
 
@@ -3427,6 +3426,11 @@ function stopCooldownTimer() {
     }
 }
 
+function parseCooldownTimestamp(val) {
+    if (typeof val === 'string') return new Date(val).getTime() / 1000;
+    return val;
+}
+
 function updateCooldownDisplays() {
     let needsRefresh = false;
 
@@ -3434,7 +3438,7 @@ function updateCooldownDisplays() {
     for (const credInfo of Object.values(AppState.creds.data)) {
         if (credInfo.model_cooldowns && Object.keys(credInfo.model_cooldowns).length > 0) {
             const currentTime = Date.now() / 1000;
-            const hasExpiredCooldowns = Object.entries(credInfo.model_cooldowns).some(([, until]) => until <= currentTime);
+            const hasExpiredCooldowns = Object.entries(credInfo.model_cooldowns).some(([, until]) => parseCooldownTimestamp(until) <= currentTime);
 
             if (hasExpiredCooldowns) {
                 needsRefresh = true;
@@ -3464,7 +3468,8 @@ function updateCooldownDisplays() {
                 const model = titleMatch[1];
                 const cooldownUntil = credInfo.model_cooldowns[model];
                 if (cooldownUntil) {
-                    const remaining = Math.max(0, Math.floor(cooldownUntil - currentTime));
+                    const ts = parseCooldownTimestamp(cooldownUntil);
+                    const remaining = Math.max(0, Math.floor(ts - currentTime));
                     if (remaining > 0) {
                         const shortModel = model.replace('gemini-', '').replace('-exp', '')
                             .replace('2.0-', '2-').replace('1.5-', '1.5-');
