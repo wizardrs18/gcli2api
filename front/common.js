@@ -1211,6 +1211,7 @@ async function loadDashboardData() {
         if (content) content.style.display = 'block';
 
         loadAppVersion();
+        loadDefaultCovers();
 
     } catch (err) {
         if (errorDiv) {
@@ -1271,6 +1272,115 @@ async function saveAppVersion() {
 }
 
 // =====================================================================
+// 默认封面管理
+// =====================================================================
+
+let _defaultCoverUrls = {};
+let _defaultCoverData = [];
+
+async function loadDefaultCovers() {
+    try {
+        const resp = await fetch('./novel/default-covers', { headers: getAuthHeaders() });
+        if (!resp.ok) return;
+        const json = await resp.json();
+        const covers = json.covers || [];
+        _defaultCoverData = covers;
+        const ts = Date.now();
+        covers.forEach(c => {
+            _defaultCoverUrls[c.order] = c.thumb_url;
+            const img = document.getElementById(`defaultCover${c.order}`);
+            if (img) {
+                img.onerror = function() { this.style.opacity = '0.3'; this.src = ''; };
+                img.src = c.thumb_url + '?t=' + ts;
+            }
+        });
+    } catch (e) {
+        console.error('Failed to load default covers:', e);
+    }
+}
+
+function uploadDefaultCover(order) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+        const file = input.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('cover_image', file);
+        showStatus(`正在上传封面 ${order}...`, 'info');
+        try {
+            const resp = await fetch(`./novel/default-covers/${order}`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${AppState.authToken}` },
+                body: formData
+            });
+            const json = await resp.json();
+            if (!resp.ok) {
+                throw new Error(json.message || json.detail || '上传失败');
+            }
+            showStatus(`封面 ${order} 替换成功`, 'success');
+            const img = document.getElementById(`defaultCover${order}`);
+            if (img) {
+                img.style.opacity = '1';
+                const baseUrl = _defaultCoverUrls[order] || '';
+                img.src = baseUrl + '?t=' + Date.now();
+            }
+        } catch (err) {
+            showStatus(`封面 ${order} 替换失败: ${err.message}`, 'error');
+        }
+    };
+    input.click();
+}
+
+async function openCoverSelector(novelId) {
+    if (_defaultCoverData.length === 0) {
+        await loadDefaultCovers();
+    }
+    if (_defaultCoverData.length === 0) {
+        showStatus('无法加载默认封面数据', 'error');
+        return;
+    }
+    const ts = Date.now();
+    const items = _defaultCoverData.map(c =>
+        `<div class="cover-selector-item" onclick="resetNovelCover('${novelId}', ${c.order})">
+            <img src="${c.url}?t=${ts}" alt="${c.label}">
+            <span>${c.label}</span>
+        </div>`
+    ).join('');
+
+    const overlay = document.createElement('div');
+    overlay.className = 'cover-selector-overlay';
+    overlay.innerHTML = `
+        <div class="cover-selector-modal">
+            <h4>选择默认封面</h4>
+            <div class="cover-selector-grid">${items}</div>
+            <button class="cover-selector-cancel" onclick="this.closest('.cover-selector-overlay').remove()">取消</button>
+        </div>`;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+}
+
+async function resetNovelCover(novelId, order) {
+    document.querySelector('.cover-selector-overlay')?.remove();
+    showStatus(`正在重置封面为默认 ${order}...`, 'info');
+    try {
+        const resp = await fetch(`./novel/imports/${novelId}/reset-cover`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders() },
+            body: JSON.stringify({ order }),
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+            throw new Error(json.message || json.detail || '重置失败');
+        }
+        showStatus('封面重置成功', 'success');
+    } catch (err) {
+        showStatus(`封面重置失败: ${err.message}`, 'error');
+    }
+}
+
+// =====================================================================
 // 导入任务管理
 // =====================================================================
 
@@ -1279,7 +1389,8 @@ const importsState = {
     totalPages: 1,
     pageSize: 20,
     allItems: [],
-    currentFilter: ''
+    currentFilter: '',
+    visibilityFilter: ''
 };
 
 const IMPORT_STATUS_LABELS = {
@@ -1322,6 +1433,8 @@ async function loadImportsList(page) {
         // Restore filter selection
         const filterEl = document.getElementById('importsStatusFilter');
         if (filterEl) importsState.currentFilter = filterEl.value;
+        const visFilterEl = document.getElementById('importsVisibilityFilter');
+        if (visFilterEl) importsState.visibilityFilter = visFilterEl.value;
 
         renderImportsList();
 
@@ -1343,6 +1456,9 @@ function renderImportsList() {
     let items = importsState.allItems;
     if (importsState.currentFilter) {
         items = items.filter(item => item.status === importsState.currentFilter);
+    }
+    if (importsState.visibilityFilter) {
+        items = items.filter(item => String(item.visibility) === importsState.visibilityFilter);
     }
 
     if (items.length === 0) {
@@ -1405,14 +1521,28 @@ function renderImportCard(item) {
 
     let deleteHtml = `<button class="import-delete-btn" onclick="deleteImport('${item.novel_id}', this)">删除</button>`;
 
-    let coverHtml = `<button class="import-cover-btn" onclick="uploadCoverImage('${item.novel_id}')">替换图片</button>`;
+    let coverHtml = `<button class="import-cover-btn" onclick="uploadCoverImage('${item.novel_id}')">替换图片</button>`
+        + `<button class="import-resetcover-btn" onclick="openCoverSelector('${item.novel_id}')">重置默认</button>`;
 
     let reimportHtml = '';
     if (item.status !== 'waiting') {
         reimportHtml = `<button class="import-reimport-btn" onclick="reimportNovel('${item.novel_id}', this)">重新导入</button>`;
     }
 
-    return `<div class="import-card">
+    let coverImgHtml = '';
+    if (item.cover_url) {
+        let coverSrc = item.cover_url;
+        if (coverSrc.startsWith('s3://')) {
+            // s3://manbo.chat/covers/xxx → https://manbo.chat/covers/xxx
+            coverSrc = coverSrc.replace(/^s3:\/\//, 'https://');
+        }
+        coverImgHtml = `<img class="import-card-cover" src="${escapeHtml(coverSrc)}" alt="封面" onerror="this.style.display='none'">`;
+    }
+
+    return `<div class="import-card ${coverImgHtml ? 'has-cover' : ''}">
+        <div class="import-card-body">
+            ${coverImgHtml}
+            <div class="import-card-content">
         <div class="import-card-header">
             <div>
                 <div class="import-card-title">${escapeHtml(item.title || '未知标题')}</div>
@@ -1420,6 +1550,7 @@ function renderImportCard(item) {
                     ${item.author ? '作者: ' + escapeHtml(item.author) : ''}
                     ${item.genre ? ' | 类型: ' + escapeHtml(item.genre) : ''}
                     ${item.file_size ? ' | ' + escapeHtml(item.file_size) : ''}
+                    ${item.visibility != null ? ' | 可见性: ' + item.visibility : ''}
                 </div>
             </div>
             <span class="import-badge ${item.status}">${statusLabel}</span>
@@ -1435,6 +1566,8 @@ function renderImportCard(item) {
             <span>创建: ${createdAt}${completedAt ? ' | 完成: ' + completedAt : ''}</span>
             <span class="import-card-actions">${viewDataHtml}${coverHtml}${reimportHtml}${actionHtml}${deleteHtml}</span>
         </div>
+            </div>
+        </div>
     </div>`;
 }
 
@@ -1446,6 +1579,11 @@ function escapeHtml(str) {
 
 function filterImports(status) {
     importsState.currentFilter = status;
+    renderImportsList();
+}
+
+function filterImportsByVisibility(value) {
+    importsState.visibilityFilter = value;
     renderImportsList();
 }
 

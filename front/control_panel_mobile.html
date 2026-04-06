@@ -479,6 +479,26 @@
             box-sizing: border-box;
         }
 
+        .import-card-body {
+            display: flex;
+            gap: 10px;
+        }
+
+        .import-card-cover {
+            width: 60px;
+            min-width: 60px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 5px;
+            background: #e0e0e0;
+            flex-shrink: 0;
+        }
+
+        .import-card-content {
+            flex: 1;
+            min-width: 0;
+        }
+
         .import-card-header {
             display: flex;
             justify-content: space-between;
@@ -612,6 +632,138 @@
 
         .import-viewdata-btn:hover {
             background-color: #138496;
+        }
+
+        .default-covers-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .default-cover-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 8px;
+            text-align: center;
+            transition: border-color 0.2s;
+        }
+
+        .default-cover-card:hover {
+            border-color: #7c4dff;
+        }
+
+        .default-cover-img {
+            width: 100%;
+            aspect-ratio: 3 / 4;
+            object-fit: cover;
+            border-radius: 4px;
+            background: #f0f0f0;
+        }
+
+        .default-cover-label {
+            margin: 6px 0 4px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .default-cover-btn {
+            padding: 4px 14px;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            background-color: #7c4dff;
+            color: white;
+            transition: background-color 0.2s;
+        }
+
+        .default-cover-btn:hover {
+            background-color: #651fff;
+        }
+
+        .cover-selector-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+
+        .cover-selector-modal {
+            background: #fff;
+            border-radius: 12px;
+            padding: 16px;
+            max-width: 360px;
+            width: 90%;
+        }
+
+        .cover-selector-modal h4 {
+            margin: 0 0 12px;
+            font-size: 15px;
+        }
+
+        .cover-selector-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .cover-selector-item {
+            cursor: pointer;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 6px;
+            text-align: center;
+            transition: border-color 0.2s;
+        }
+
+        .cover-selector-item:hover {
+            border-color: #7c4dff;
+        }
+
+        .cover-selector-item img {
+            width: 100%;
+            aspect-ratio: 3 / 4;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+
+        .cover-selector-item span {
+            display: block;
+            margin-top: 4px;
+            font-size: 11px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        .cover-selector-cancel {
+            display: block;
+            margin: 12px auto 0;
+            padding: 6px 20px;
+            border: 1px solid #ccc;
+            background: #fff;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .import-resetcover-btn {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            background-color: #ff9800;
+            color: white;
+            transition: background-color 0.2s;
+            margin-right: 4px;
+        }
+
+        .import-resetcover-btn:hover {
+            background-color: #f57c00;
         }
 
         .import-cover-btn {
@@ -2099,6 +2251,42 @@
                             <span id="appVersionStatus" style="margin-left:10px;font-size:13px;"></span>
                         </div>
                     </div>
+                    <div class="dashboard-section">
+                        <h4>默认封面管理</h4>
+                        <div class="default-covers-grid" id="defaultCoversGrid">
+                            <div class="default-cover-card">
+                                <img class="default-cover-img" id="defaultCover1" src="" alt="封面 1">
+                                <div class="default-cover-label">居家盘腿</div>
+                                <button class="default-cover-btn" onclick="uploadDefaultCover(1)">替换</button>
+                            </div>
+                            <div class="default-cover-card">
+                                <img class="default-cover-img" id="defaultCover2" src="" alt="封面 2">
+                                <div class="default-cover-label">居家坐床</div>
+                                <button class="default-cover-btn" onclick="uploadDefaultCover(2)">替换</button>
+                            </div>
+                            <div class="default-cover-card">
+                                <img class="default-cover-img" id="defaultCover3" src="" alt="封面 3">
+                                <div class="default-cover-label">中华旗袍</div>
+                                <button class="default-cover-btn" onclick="uploadDefaultCover(3)">替换</button>
+                            </div>
+                            <div class="default-cover-card">
+                                <img class="default-cover-img" id="defaultCover4" src="" alt="封面 4">
+                                <div class="default-cover-label">暗夜特工</div>
+                                <button class="default-cover-btn" onclick="uploadDefaultCover(4)">替换</button>
+                            </div>
+                            <div class="default-cover-card">
+                                <img class="default-cover-img" id="defaultCover5" src="" alt="封面 5">
+                                <div class="default-cover-label">华贵中世纪</div>
+                                <button class="default-cover-btn" onclick="uploadDefaultCover(5)">替换</button>
+                            </div>
+                            <div class="default-cover-card">
+                                <img class="default-cover-img" id="defaultCover6" src="" alt="封面 6">
+                                <div class="default-cover-label">魔法奇幻</div>
+                                <button class="default-cover-btn" onclick="uploadDefaultCover(6)">替换</button>
+                            </div>
+                        </div>
+                        <span id="defaultCoverStatus" style="display:block;margin-top:8px;font-size:13px;"></span>
+                    </div>
                 </div>
             </div>
 
@@ -2116,6 +2304,10 @@
                             <option value="paused">已暂停</option>
                             <option value="error">错误</option>
                             <option value="completed">已完成</option>
+                        </select>
+                        <select id="importsVisibilityFilter" class="imports-filter-select" onchange="filterImportsByVisibility(this.value)">
+                            <option value="">全部可见性</option>
+                            <option value="3">隐藏</option>
                         </select>
                         <button onclick="loadImportsList()" style="padding:6px 12px;border:1px solid #007bff;background:#007bff;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">刷新</button>
                     </div>

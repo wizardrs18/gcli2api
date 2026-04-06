@@ -485,7 +485,7 @@ async def upload_credentials_common(
                 status_code=400, detail=f"文件 {file.filename} 格式不支持，只支持JSON和ZIP文件"
             )
 
-    
+
 
     batch_size = 1000
     all_results = []
@@ -583,7 +583,7 @@ async def get_creds_status_common(
     if cooldown_filter and cooldown_filter not in ["all", "in_cooldown", "no_cooldown"]:
         raise HTTPException(status_code=400, detail="cooldown_filter 只能是 all、in_cooldown 或 no_cooldown")
 
-    
+
 
     storage_adapter = await get_storage_adapter()
     backend_info = await storage_adapter.get_backend_info()
@@ -753,13 +753,13 @@ async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSO
 
 async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONResponse:
     """刷新所有凭证文件用户邮箱的通用函数 - 只为没有邮箱的凭证获取
-    
+
     利用 get_all_credential_states 批量获取状态
     """
     mode = validate_mode(mode)
 
     storage_adapter = await get_storage_adapter()
-    
+
     # 一次性批量获取所有凭证的状态
     all_states = await storage_adapter.get_all_credential_states(mode=mode)
 
@@ -982,7 +982,7 @@ async def get_cred_detail(
         if not filename.endswith(".json"):
             raise HTTPException(status_code=400, detail="无效的文件名")
 
-        
+
 
         storage_adapter = await get_storage_adapter()
         backend_info = await storage_adapter.get_backend_info()
@@ -1761,11 +1761,24 @@ async def check_credential_common(filename: str, mode: str = "geminicli", model:
                 "disabled": False,
                 "error_codes": []
             }, mode=mode)
+
+            # 清除对应模型组的冷却
+            if hasattr(storage_adapter, '_backend') and hasattr(storage_adapter._backend, 'set_model_cooldown'):
+                if mode == "antigravity":
+                    model_key = model
+                else:
+                    from src.api.utils import get_model_group
+                    model_key = get_model_group(model)
+                await storage_adapter._backend.set_model_cooldown(
+                    filename, model_key, None, mode=mode
+                )
+                log.info(f"检测成功，已清除模型冷却: {filename}, model_key={model_key}")
+
             log.info(f"检测 {mode} 凭证成功: {filename} - 已解除禁用并清除错误码")
             return JSONResponse(content={
                 "success": True,
                 "status_code": 200,
-                "message": "检测成功！凭证可用，已解除禁用并清除错误码"
+                "message": "检测成功！凭证可用，已解除禁用并清除错误码和模型冷却"
             })
         else:
             # 错误响应
@@ -1863,7 +1876,7 @@ async def get_credential_quota(
         if not filename.endswith(".json"):
             raise HTTPException(status_code=400, detail="无效的文件名")
 
-        
+
         storage_adapter = await get_storage_adapter()
 
         # 获取凭证数据
