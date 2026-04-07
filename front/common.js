@@ -1524,6 +1524,8 @@ function renderImportCard(item) {
     let coverHtml = `<button class="import-cover-btn" onclick="uploadCoverImage('${item.novel_id}')">替换图片</button>`
         + `<button class="import-resetcover-btn" onclick="openCoverSelector('${item.novel_id}')">重置默认</button>`;
 
+    let migrateHtml = `<button class="import-migrate-btn" onclick="migrateSubscriptions('${item.novel_id}', this)">迁移订阅</button>`;
+
     let reimportHtml = '';
     if (item.status !== 'waiting') {
         reimportHtml = `<button class="import-reimport-btn" onclick="reimportNovel('${item.novel_id}', this)">重新导入</button>`;
@@ -1545,12 +1547,17 @@ function renderImportCard(item) {
             <div class="import-card-content">
         <div class="import-card-header">
             <div>
-                <div class="import-card-title">${escapeHtml(item.title || '未知标题')}</div>
+                <div class="import-card-title" onclick="editNovelTitle('${item.novel_id}', this)" title="点击修改标题" style="cursor:pointer;">${escapeHtml(item.title || '未知标题')}</div>
                 <div class="import-card-meta">
                     ${item.author ? '作者: ' + escapeHtml(item.author) : ''}
                     ${item.genre ? ' | 类型: ' + escapeHtml(item.genre) : ''}
                     ${item.file_size ? ' | ' + escapeHtml(item.file_size) : ''}
-                    ${item.visibility != null ? ' | 可见性: ' + item.visibility : ''}
+                    ${item.visibility != null ? ` | 可见性: <select class="visibility-select" onchange="updateVisibility('${item.novel_id}', parseInt(this.value), this)" style="font-size:12px;padding:1px 4px;border-radius:4px;border:1px solid #ccc;cursor:pointer;">
+                        <option value="0"${item.visibility === 0 ? ' selected' : ''}>0 (公开)</option>
+                        <option value="1"${item.visibility === 1 ? ' selected' : ''}>1</option>
+                        <option value="2"${item.visibility === 2 ? ' selected' : ''}>2</option>
+                        <option value="3"${item.visibility === 3 ? ' selected' : ''}>3 (隐藏)</option>
+                    </select>` : ''}
                 </div>
             </div>
             <span class="import-badge ${item.status}">${statusLabel}</span>
@@ -1564,7 +1571,7 @@ function renderImportCard(item) {
         ${errorHtml}
         <div class="import-card-footer">
             <span>创建: ${createdAt}${completedAt ? ' | 完成: ' + completedAt : ''}</span>
-            <span class="import-card-actions">${viewDataHtml}${coverHtml}${reimportHtml}${actionHtml}${deleteHtml}</span>
+            <span class="import-card-actions">${viewDataHtml}${coverHtml}${migrateHtml}${reimportHtml}${actionHtml}${deleteHtml}</span>
         </div>
             </div>
         </div>
@@ -1585,6 +1592,184 @@ function filterImports(status) {
 function filterImportsByVisibility(value) {
     importsState.visibilityFilter = value;
     renderImportsList();
+}
+
+async function updateVisibility(novelId, visibility, selectEl) {
+    const originalValue = selectEl.dataset.originalValue || selectEl.value;
+    selectEl.disabled = true;
+    try {
+        const resp = await fetch(`./novel/imports/${novelId}/visibility`, {
+            method: 'PUT',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ visibility }),
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+            throw new Error(json.message || json.detail || '更新失败');
+        }
+        showStatus(`可见性已更新为 ${visibility}`, 'success');
+        // Update local data
+        const item = importsState.allItems.find(i => i.novel_id === novelId);
+        if (item) item.visibility = visibility;
+    } catch (err) {
+        showStatus(`可见性更新失败: ${err.message}`, 'error');
+        selectEl.value = originalValue;
+    } finally {
+        selectEl.disabled = false;
+    }
+}
+
+async function editNovelTitle(novelId, titleEl) {
+    const oldTitle = titleEl.textContent;
+    const newTitle = prompt('修改小说标题：', oldTitle);
+    if (newTitle === null || newTitle.trim() === '' || newTitle.trim() === oldTitle) return;
+
+    titleEl.style.opacity = '0.5';
+    try {
+        const resp = await fetch(`./novel/imports/${novelId}/title`, {
+            method: 'PUT',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: newTitle.trim() }),
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+            throw new Error(json.message || json.detail || '更新失败');
+        }
+        titleEl.textContent = newTitle.trim();
+        // Update local data
+        const item = importsState.allItems.find(i => i.novel_id === novelId);
+        if (item) item.title = newTitle.trim();
+        showStatus('标题更新成功', 'success');
+    } catch (err) {
+        showStatus(`标题更新失败: ${err.message}`, 'error');
+    } finally {
+        titleEl.style.opacity = '1';
+    }
+}
+
+async function migrateSubscriptions(novelId, btn) {
+    const keyword = prompt('输入搜索关键词（留空则使用小说标题自动匹配）：', '');
+    if (keyword === null) return; // cancelled
+
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '查询中...';
+    }
+
+    try {
+        const bodyData = { dry_run: true };
+        if (keyword.trim()) bodyData.keyword = keyword.trim();
+
+        const previewResp = await fetch(`./novel/imports/${novelId}/migrate-subscriptions`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(bodyData),
+        });
+        const previewJson = await previewResp.json();
+
+        if (!previewResp.ok) {
+            throw new Error(previewJson.message || previewJson.detail || '查询失败');
+        }
+
+        if (!previewJson.novels || previewJson.novels.length < 2) {
+            showStatus(previewJson.message || '没有找到相关小说', 'info');
+            return;
+        }
+
+        // Show source selection modal
+        openMigrateModal(novelId, previewJson, keyword.trim());
+
+    } catch (err) {
+        showStatus(`查询失败: ${err.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '迁移订阅';
+        }
+    }
+}
+
+function openMigrateModal(targetNovelId, previewData, keyword) {
+    const novels = previewData.novels || [];
+    const sourceNovels = novels.filter(n => !n.is_target);
+    const renamedMap = {};
+    (previewData.renamed_sources || []).forEach(r => { renamedMap[r.id] = r; });
+
+    const checkboxes = sourceNovels.map(n => {
+        const rename = renamedMap[n.id];
+        const renameHint = rename ? ` <span style="color:#999;font-size:12px;">→ ${escapeHtml(rename.new_title)}, pop=-1</span>` : '';
+        return `<label class="migrate-source-item">
+            <input type="checkbox" value="${n.id}" checked>
+            <span>${escapeHtml(n.title)}${n.popularity != null ? ' (pop:' + n.popularity + ')' : ''}${renameHint}</span>
+        </label>`;
+    }).join('');
+
+    const targetNovel = novels.find(n => n.is_target);
+    const targetName = targetNovel ? escapeHtml(targetNovel.title) : targetNovelId;
+    const targetRenameHint = previewData.target_new_title
+        ? `<p style="color:#17a2b8;font-size:13px;margin:4px 0;">目标改名: ${escapeHtml(targetNovel.title)} → ${escapeHtml(previewData.target_new_title)}, pop=${previewData.target_popularity}</p>`
+        : '';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'migrate-modal-overlay';
+    overlay.innerHTML = `
+        <div class="migrate-modal">
+            <h4>迁移订阅到: ${targetName}</h4>
+            <p style="color:#666;font-size:13px;margin:8px 0;">预览: ${previewData.favorites_to_migrate || 0} 条订阅, ${previewData.comments_to_migrate || 0} 条评论（全选时）</p>
+            ${targetRenameHint}
+            <div style="margin:12px 0;font-size:13px;font-weight:600;">选择源小说（勾选的将被迁移）：</div>
+            <div class="migrate-source-list">${checkboxes}</div>
+            <div class="migrate-modal-actions">
+                <button class="migrate-cancel-btn" onclick="this.closest('.migrate-modal-overlay').remove()">取消</button>
+                <button class="migrate-confirm-btn" onclick="executeMigration('${targetNovelId}', this)">执行迁移</button>
+            </div>
+        </div>`;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.dataset.keyword = keyword || '';
+    document.body.appendChild(overlay);
+}
+
+async function executeMigration(targetNovelId, confirmBtn) {
+    const overlay = confirmBtn.closest('.migrate-modal-overlay');
+    const checked = overlay.querySelectorAll('.migrate-source-item input[type="checkbox"]:checked');
+    const sourceIds = Array.from(checked).map(cb => cb.value);
+
+    if (sourceIds.length === 0) {
+        showStatus('请至少选择一个源小说', 'error');
+        return;
+    }
+
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '迁移中...';
+
+    try {
+        const execBody = { dry_run: false, source_ids: sourceIds };
+        const keyword = overlay.dataset.keyword;
+        if (keyword) execBody.keyword = keyword;
+
+        const resp = await fetch(`./novel/imports/${targetNovelId}/migrate-subscriptions`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(execBody),
+        });
+        const json = await resp.json();
+
+        if (!resp.ok) {
+            throw new Error(json.message || json.detail || '迁移失败');
+        }
+
+        overlay.remove();
+        const renameInfo = json.target_new_title ? `, 目标改名为 "${json.target_new_title}"` : '';
+        showStatus(
+            `迁移完成: ${json.favorites_migrated} 条订阅, ${json.comments_migrated} 条评论${renameInfo}`,
+            'success'
+        );
+        loadImportsList(importsState.currentPage);
+    } catch (err) {
+        showStatus(`迁移失败: ${err.message}`, 'error');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '执行迁移';
+    }
 }
 
 async function retryImport(importId, btn) {

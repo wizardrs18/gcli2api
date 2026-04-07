@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import uuid
 
 from fastapi import APIRouter, Depends, Path, Query, Request, UploadFile, File
 from fastapi.responses import JSONResponse
@@ -266,6 +268,374 @@ async def delete_import(
         log.error(f"Failed to delete novel {novel_id}: {e}")
         return JSONResponse(
             content={"detail": f"删除失败: {e}"},
+            status_code=500,
+        )
+
+
+@router.post("/imports/{novel_id}/migrate-subscriptions")
+async def migrate_subscriptions(
+    novel_id: str,
+    request: Request,
+    _token: str = Depends(verify_panel_token),
+):
+    """Migrate favorites and comments from related novels to the target novel.
+
+    Reimplements migrate_novel_subscriptions.py logic using async MySQL pool.
+    Accepts optional JSON body: {"keyword": "...", "dry_run": true/false, "source_ids": [...]}
+    If keyword is omitted, uses the target novel's title.
+    If source_ids is provided, only migrate from those specific novels.
+    """
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+
+        keyword = body.get("keyword")
+        dry_run = body.get("dry_run", False)
+        explicit_source_ids = body.get("source_ids")  # optional: user-selected sources
+
+        adapter = await get_storage_adapter()
+        if adapter.get_backend_type() != "mysql":
+            return JSONResponse(
+                content={"detail": "This feature requires MySQL backend"},
+                status_code=503,
+            )
+
+        pool = adapter._backend._pool
+        if pool is None:
+            return JSONResponse(
+                content={"detail": "MySQL connection pool not available"},
+                status_code=503,
+            )
+
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                # Get target novel title if keyword not provided
+                if not keyword:
+                    await cur.execute(
+                        "SELECT title FROM novels WHERE id = %s", (novel_id,)
+                    )
+                    row = await cur.fetchone()
+                    if not row:
+                        return JSONResponse(
+                            content={"detail": "目标小说不存在"},
+                            status_code=404,
+                        )
+                    # Use full title as keyword
+                    keyword = row[0]
+
+                # Find all novels matching keyword
+                await cur.execute(
+                    "SELECT id, title, created_at, popularity FROM novels WHERE title LIKE %s ORDER BY created_at",
+                    (f"%{keyword}%",),
+                )
+                novels = await cur.fetchall()  # (id, title, created_at, popularity)
+
+                if len(novels) < 2:
+                    return JSONResponse(content={
+                        "message": f"未找到其他包含 '{keyword}' 的小说，无需迁移",
+                        "keyword": keyword,
+                        "novels_found": len(novels),
+                        "favorites_migrated": 0,
+                        "comments_migrated": 0,
+                    })
+
+                # Source = all matching novels except target, or user-specified list
+                all_source_ids = [n[0] for n in novels if n[0] != novel_id]
+                novel_list = [{"id": n[0], "title": n[1], "is_target": n[0] == novel_id, "popularity": n[3]} for n in novels]
+
+                if explicit_source_ids:
+                    # Filter to only user-selected sources (must be in the matched set)
+                    valid_set = set(all_source_ids)
+                    source_ids = [sid for sid in explicit_source_ids if sid in valid_set]
+                else:
+                    source_ids = all_source_ids
+
+                if not source_ids:
+                    return JSONResponse(content={
+                        "message": "没有源小说可迁移",
+                        "keyword": keyword,
+                        "novels_found": len(novels),
+                        "favorites_migrated": 0,
+                        "comments_migrated": 0,
+                    })
+
+                placeholders = ",".join(["%s"] * len(source_ids))
+
+                # --- Migrate favorites ---
+                await cur.execute(
+                    f"SELECT user_id, contribution_keys, max_branch_count, created_at "
+                    f"FROM favorites WHERE novel_id IN ({placeholders})",
+                    source_ids,
+                )
+                source_favorites = await cur.fetchall()
+
+                await cur.execute(
+                    "SELECT user_id FROM favorites WHERE novel_id = %s",
+                    (novel_id,),
+                )
+                existing_fav_users = {r[0] for r in await cur.fetchall()}
+
+                # Deduplicate: keep the one with highest contribution_keys per user
+                user_best = {}
+                for fav in source_favorites:
+                    uid, contrib_keys, max_branch, created = fav
+                    if uid in existing_fav_users:
+                        continue
+                    if uid not in user_best or contrib_keys > user_best[uid][1]:
+                        user_best[uid] = fav
+
+                fav_to_insert = list(user_best.values())
+
+                # --- Migrate comments ---
+                await cur.execute(
+                    f"SELECT user_id, content, like_count, created_at, updated_at "
+                    f"FROM comments WHERE novel_id IN ({placeholders})",
+                    source_ids,
+                )
+                source_comments = await cur.fetchall()
+
+                await cur.execute(
+                    "SELECT user_id, content FROM comments WHERE novel_id = %s",
+                    (novel_id,),
+                )
+                existing_comments = {(r[0], r[1]) for r in await cur.fetchall()}
+
+                comments_to_insert = [
+                    c for c in source_comments
+                    if (c[0], c[1]) not in existing_comments
+                ]
+
+                # Compute rename preview
+                target_info = next(n for n in novels if n[0] == novel_id)
+                target_title = target_info[1]
+                base_name = re.sub(r'[\d.]+$', '', target_title).strip()
+
+                source_novels_data = [n for n in novels if n[0] in source_ids]
+                source_pops = [n[3] for n in source_novels_data if n[3] is not None]
+                preview_max_pop = max(source_pops) if source_pops else 0
+
+                # Find the highest existing 0.9x suffix in DB for this base name
+                await cur.execute(
+                    "SELECT title FROM novels WHERE title LIKE %s",
+                    (f"{base_name}0.9%",),
+                )
+                existing_titles = [r[0] for r in await cur.fetchall()]
+                max_suffix = 89  # will start from 0.90
+                for t in existing_titles:
+                    m = re.search(r'0\.(\d+)$', t)
+                    if m:
+                        max_suffix = max(max_suffix, int(m.group(1)))
+                next_suffix = max_suffix + 1
+
+                preview_renamed = []
+                for i, sid in enumerate(source_ids):
+                    src = next(n for n in novels if n[0] == sid)
+                    # Skip sources that already have a 0.9x suffix
+                    if re.search(r'0\.9\d+$', src[1]):
+                        continue
+                    s = next_suffix + len(preview_renamed)
+                    preview_renamed.append({"id": sid, "old_title": src[1], "new_title": f"{base_name}0.{s}"})
+
+                if dry_run:
+                    return JSONResponse(content={
+                        "message": "预览完成（dry-run）",
+                        "keyword": keyword,
+                        "dry_run": True,
+                        "novels": novel_list,
+                        "source_ids": source_ids,
+                        "favorites_to_migrate": len(fav_to_insert),
+                        "comments_to_migrate": len(comments_to_insert),
+                        "target_new_title": preview_target_title,
+                        "target_popularity": preview_max_pop,
+                        "renamed_sources": preview_renamed,
+                    })
+
+                # Execute migration
+                fav_inserted = 0
+                for fav in fav_to_insert:
+                    uid, contrib_keys, max_branch, created = fav
+                    new_id = str(uuid.uuid4())
+                    await cur.execute(
+                        "INSERT INTO favorites (id, user_id, novel_id, contribution_keys, max_branch_count, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (new_id, uid, novel_id, contrib_keys, max_branch, created),
+                    )
+                    fav_inserted += 1
+
+                comments_inserted = 0
+                for comment in comments_to_insert:
+                    uid, content, like_count, created, updated = comment
+                    new_id = str(uuid.uuid4())
+                    await cur.execute(
+                        "INSERT INTO comments (id, novel_id, user_id, content, like_count, created_at, updated_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (new_id, novel_id, uid, content, like_count, created, updated),
+                    )
+                    comments_inserted += 1
+
+                # --- Rename & swap popularity ---
+                new_target_title = base_name
+                max_pop = preview_max_pop
+
+                # Update target: new title + max popularity
+                await cur.execute(
+                    "UPDATE novels SET title = %s, popularity = %s WHERE id = %s",
+                    (new_target_title, max_pop, novel_id),
+                )
+                await cur.execute(
+                    "UPDATE import_novels SET title = %s WHERE novel_id = %s",
+                    (new_target_title, novel_id),
+                )
+
+                # Update sources: popularity = -1, rename with 0.9x suffix
+                renamed_sources = preview_renamed
+                for r in renamed_sources:
+                    await cur.execute(
+                        "UPDATE novels SET title = %s, popularity = -1 WHERE id = %s",
+                        (r["new_title"], r["id"]),
+                    )
+                    await cur.execute(
+                        "UPDATE import_novels SET title = %s WHERE novel_id = %s",
+                        (r["new_title"], r["id"]),
+                    )
+                # Set popularity = -1 for sources that already had 0.9x suffix (skipped in rename)
+                renamed_ids = {r["id"] for r in renamed_sources}
+                for sid in source_ids:
+                    if sid not in renamed_ids:
+                        await cur.execute(
+                            "UPDATE novels SET popularity = -1 WHERE id = %s",
+                            (sid,),
+                        )
+
+        log.info(
+            f"Migrated subscriptions to novel {novel_id}: "
+            f"{fav_inserted} favorites, {comments_inserted} comments, "
+            f"renamed target to '{new_target_title}', pop={max_pop}"
+        )
+        return JSONResponse(content={
+            "message": "迁移完成",
+            "keyword": keyword,
+            "novels": novel_list,
+            "source_ids": source_ids,
+            "favorites_migrated": fav_inserted,
+            "comments_migrated": comments_inserted,
+            "target_new_title": new_target_title,
+            "target_popularity": max_pop,
+            "renamed_sources": renamed_sources,
+        })
+
+    except Exception as e:
+        log.error(f"Failed to migrate subscriptions for novel {novel_id}: {e}")
+        return JSONResponse(
+            content={"detail": f"迁移失败: {e}"},
+            status_code=500,
+        )
+
+
+@router.put("/imports/{novel_id}/title")
+async def update_title(
+    novel_id: str,
+    request: Request,
+    _token: str = Depends(verify_panel_token),
+):
+    """Update novel title in both novels and import_novels tables."""
+    try:
+        body = await request.json()
+        title = body.get("title", "").strip()
+        if not title:
+            return JSONResponse(
+                content={"detail": "标题不能为空"},
+                status_code=400,
+            )
+
+        adapter = await get_storage_adapter()
+        if adapter.get_backend_type() != "mysql":
+            return JSONResponse(
+                content={"detail": "This feature requires MySQL backend"},
+                status_code=503,
+            )
+
+        pool = adapter._backend._pool
+        if pool is None:
+            return JSONResponse(
+                content={"detail": "MySQL connection pool not available"},
+                status_code=503,
+            )
+
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE novels SET title = %s WHERE id = %s",
+                    (title, novel_id),
+                )
+                await cur.execute(
+                    "UPDATE import_novels SET title = %s WHERE novel_id = %s",
+                    (title, novel_id),
+                )
+
+        log.info(f"Updated title for novel {novel_id} to '{title}'")
+        return JSONResponse(content={"message": "标题更新成功", "title": title})
+
+    except Exception as e:
+        log.error(f"Failed to update title for novel {novel_id}: {e}")
+        return JSONResponse(
+            content={"detail": f"更新标题失败: {e}"},
+            status_code=500,
+        )
+
+
+@router.put("/imports/{novel_id}/visibility")
+async def update_visibility(
+    novel_id: str,
+    request: Request,
+    _token: str = Depends(verify_panel_token),
+):
+    """Update novel visibility in the novels table."""
+    try:
+        body = await request.json()
+        visibility = body.get("visibility")
+        if visibility is None or not isinstance(visibility, int):
+            return JSONResponse(
+                content={"detail": "visibility 必须为整数"},
+                status_code=400,
+            )
+
+        adapter = await get_storage_adapter()
+        if adapter.get_backend_type() != "mysql":
+            return JSONResponse(
+                content={"detail": "This feature requires MySQL backend"},
+                status_code=503,
+            )
+
+        pool = adapter._backend._pool
+        if pool is None:
+            return JSONResponse(
+                content={"detail": "MySQL connection pool not available"},
+                status_code=503,
+            )
+
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE novels SET visibility = %s WHERE id = %s",
+                    (visibility, novel_id),
+                )
+                if cur.rowcount == 0:
+                    return JSONResponse(
+                        content={"detail": "小说不存在"},
+                        status_code=404,
+                    )
+
+        log.info(f"Updated visibility for novel {novel_id} to {visibility}")
+        return JSONResponse(content={"message": "可见性更新成功", "visibility": visibility})
+
+    except Exception as e:
+        log.error(f"Failed to update visibility for novel {novel_id}: {e}")
+        return JSONResponse(
+            content={"detail": f"更新可见性失败: {e}"},
             status_code=500,
         )
 
