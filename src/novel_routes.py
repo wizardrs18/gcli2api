@@ -23,18 +23,47 @@ async def list_imports(
     page_size: int = Query(20, ge=1, le=100),
     _token: str = Depends(verify_panel_token),
 ):
-    """Forward import list request to novel_backend admin API, enrich with novels data"""
+    """Forward import list request to novel_backend admin API, enrich with novels data.
+
+    Aggregates all upstream pages into a single response so the caller can
+    filter then paginate client-side. The page/page_size params are accepted
+    for backward compatibility but the response always contains the full set.
+    """
     backend_url = await get_novel_backend_url()
     admin_key = await get_novel_admin_api_key()
-
-    url = f"{backend_url}/api/v1/admin/import?page={page}&page_size={page_size}"
     headers = {"X-Admin-Key": admin_key}
 
     try:
-        resp = await get_async(url, headers=headers)
-        result = resp.json()
+        chunk = 100
+        all_items: list = []
+        cur_page = 1
+        total = 0
+        last_resp_status = 200
+        last_resp_json: dict = {}
+        while True:
+            url = f"{backend_url}/api/v1/admin/import?page={cur_page}&page_size={chunk}"
+            resp = await get_async(url, headers=headers)
+            last_resp_status = resp.status_code
+            last_resp_json = resp.json() if resp.content else {}
+            if last_resp_status != 200:
+                return JSONResponse(content=last_resp_json, status_code=last_resp_status)
+            data = (last_resp_json or {}).get("data") or {}
+            items = data.get("items") or []
+            total = data.get("total") or 0
+            all_items.extend(items)
+            if not items or len(items) < chunk or len(all_items) >= total or cur_page >= 200:
+                break
+            cur_page += 1
 
-        # Enrich items with visibility and cover_url from novels table
+        result = dict(last_resp_json) if isinstance(last_resp_json, dict) else {"code": 200}
+        result["data"] = {
+            "items": all_items,
+            "total": total or len(all_items),
+            "page": 1,
+            "pageSize": len(all_items),
+        }
+
+        # Enrich items with visibility, cover_url and description from novels table
         try:
             items = result.get("data", {}).get("items", [])
             novel_ids = [item["novel_id"] for item in items if item.get("novel_id")]
@@ -57,10 +86,27 @@ async def list_imports(
                             if nid and nid in novel_map:
                                 item["visibility"] = novel_map[nid]["visibility"]
                                 item["cover_url"] = novel_map[nid]["cover_url"]
+
+                        # Best-effort description enrichment (column may not exist on all schemas)
+                        try:
+                            async with pool.acquire() as conn:
+                                async with conn.cursor() as cur:
+                                    await cur.execute(
+                                        f"SELECT id, description FROM novels WHERE id IN ({placeholders})",
+                                        novel_ids,
+                                    )
+                                    desc_rows = await cur.fetchall()
+                            desc_map = {r[0]: r[1] for r in desc_rows}
+                            for item in items:
+                                nid = item.get("novel_id")
+                                if nid and nid in desc_map:
+                                    item["description"] = desc_map[nid]
+                        except Exception as desc_err:
+                            log.warning(f"Failed to enrich imports with description: {desc_err}")
         except Exception as e:
             log.warning(f"Failed to enrich imports with novel data: {e}")
 
-        return JSONResponse(content=result, status_code=resp.status_code)
+        return JSONResponse(content=result, status_code=last_resp_status)
     except Exception as e:
         log.error(f"Failed to forward list imports request: {e}")
         return JSONResponse(

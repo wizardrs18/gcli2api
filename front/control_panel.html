@@ -837,6 +837,20 @@
             margin-top: 4px;
         }
 
+        .import-card-desc {
+            font-size: 12px;
+            color: #555;
+            margin-top: 6px;
+            line-height: 1.5;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
         .import-badge {
             padding: 2px 10px;
             border-radius: 12px;
@@ -2648,9 +2662,9 @@
                 <div id="importsList"></div>
 
                 <div id="importsPagination" class="pagination-container" style="display:none;">
-                    <button class="pagination-btn" id="importsPrevBtn" onclick="loadImportsList(importsState.currentPage - 1)">上一页</button>
+                    <button class="pagination-btn" id="importsPrevBtn" onclick="goToImportsPage(importsState.currentPage - 1)">上一页</button>
                     <span class="pagination-info" id="importsPageInfo"></span>
-                    <button class="pagination-btn" id="importsNextBtn" onclick="loadImportsList(importsState.currentPage + 1)">下一页</button>
+                    <button class="pagination-btn" id="importsNextBtn" onclick="goToImportsPage(importsState.currentPage + 1)">下一页</button>
                 </div>
 
                 <!-- Plot Update Modal -->

@@ -1402,7 +1402,7 @@ const IMPORT_STATUS_LABELS = {
 };
 
 async function loadImportsList(page) {
-    if (page === undefined || page === null) page = 1;
+    if (page === undefined || page === null) page = importsState.currentPage || 1;
     if (page < 1) page = 1;
 
     const loading = document.getElementById('importsLoading');
@@ -1416,7 +1416,8 @@ async function loadImportsList(page) {
     if (paginationDiv) paginationDiv.style.display = 'none';
 
     try {
-        const resp = await fetch(`./novel/imports?page=${page}&page_size=${importsState.pageSize}`, {
+        // Backend now returns the full set; filtering and pagination are client-side.
+        const resp = await fetch(`./novel/imports`, {
             headers: getAuthHeaders()
         });
         const json = await resp.json();
@@ -1427,8 +1428,7 @@ async function loadImportsList(page) {
 
         const data = json.data;
         importsState.allItems = data.items || [];
-        importsState.currentPage = data.page;
-        importsState.totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+        importsState.currentPage = page;
 
         // Restore filter selection
         const filterEl = document.getElementById('importsStatusFilter');
@@ -1448,11 +1448,18 @@ async function loadImportsList(page) {
     }
 }
 
+function goToImportsPage(page) {
+    if (!page || page < 1) page = 1;
+    importsState.currentPage = page;
+    renderImportsList();
+}
+
 function renderImportsList() {
     const listDiv = document.getElementById('importsList');
     const paginationDiv = document.getElementById('importsPagination');
     if (!listDiv) return;
 
+    // Filter first, then paginate the filtered subset.
     let items = importsState.allItems;
     if (importsState.currentFilter) {
         items = items.filter(item => item.status === importsState.currentFilter);
@@ -1461,13 +1468,21 @@ function renderImportsList() {
         items = items.filter(item => String(item.visibility) === importsState.visibilityFilter);
     }
 
-    if (items.length === 0) {
+    const totalPages = Math.max(1, Math.ceil(items.length / importsState.pageSize));
+    if (importsState.currentPage > totalPages) importsState.currentPage = totalPages;
+    if (importsState.currentPage < 1) importsState.currentPage = 1;
+    importsState.totalPages = totalPages;
+
+    const start = (importsState.currentPage - 1) * importsState.pageSize;
+    const pagedItems = items.slice(start, start + importsState.pageSize);
+
+    if (pagedItems.length === 0) {
         listDiv.innerHTML = '<div class="imports-empty">暂无导入任务</div>';
         if (paginationDiv) paginationDiv.style.display = 'none';
         return;
     }
 
-    listDiv.innerHTML = items.map(renderImportCard).join('');
+    listDiv.innerHTML = pagedItems.map(renderImportCard).join('');
 
     // Pagination
     if (paginationDiv) {
@@ -1476,10 +1491,10 @@ function renderImportsList() {
         const pageInfo = document.getElementById('importsPageInfo');
 
         if (prevBtn) prevBtn.disabled = importsState.currentPage <= 1;
-        if (nextBtn) nextBtn.disabled = importsState.currentPage >= importsState.totalPages;
-        if (pageInfo) pageInfo.textContent = `${importsState.currentPage} / ${importsState.totalPages}`;
+        if (nextBtn) nextBtn.disabled = importsState.currentPage >= totalPages;
+        if (pageInfo) pageInfo.textContent = `${importsState.currentPage} / ${totalPages}`;
 
-        paginationDiv.style.display = importsState.totalPages > 1 ? 'flex' : 'none';
+        paginationDiv.style.display = totalPages > 1 ? 'flex' : 'none';
     }
 }
 
@@ -1559,6 +1574,7 @@ function renderImportCard(item) {
                         <option value="3"${item.visibility === 3 ? ' selected' : ''}>3 (隐藏)</option>
                     </select>` : ''}
                 </div>
+                ${item.description ? `<div class="import-card-desc" title="${escapeHtml(item.description)}">简介: ${escapeHtml(item.description)}</div>` : ''}
             </div>
             <span class="import-badge ${item.status}">${statusLabel}</span>
         </div>
@@ -1586,11 +1602,13 @@ function escapeHtml(str) {
 
 function filterImports(status) {
     importsState.currentFilter = status;
+    importsState.currentPage = 1;
     renderImportsList();
 }
 
 function filterImportsByVisibility(value) {
     importsState.visibilityFilter = value;
+    importsState.currentPage = 1;
     renderImportsList();
 }
 
