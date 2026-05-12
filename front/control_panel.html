@@ -2646,9 +2646,12 @@
                             <option value="completed">已完成</option>
                         </select>
                         <select id="importsVisibilityFilter" class="filter-select" onchange="filterImportsByVisibility(this.value)">
-                            <option value="">全部可见性</option>
-                            <option value="3">隐藏 (visibility=3)</option>
+                            <option value="">不限可见性</option>
+                            <option value="1">visibility=1</option>
+                            <option value="2">visibility=2</option>
+                            <option value="3">visibility=3 (所有人可见)</option>
                         </select>
+                        <button onclick="retryAllFailedImports(this)" style="padding:6px 16px;border:1px solid #f59e0b;background:#f59e0b;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;">一键重试失败</button>
                         <button onclick="loadImportsList()" style="padding:6px 16px;border:1px solid #007bff;background:#007bff;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;">刷新</button>
                     </div>
                 </div>

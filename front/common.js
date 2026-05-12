@@ -1568,10 +1568,10 @@ function renderImportCard(item) {
                     ${item.genre ? ' | 类型: ' + escapeHtml(item.genre) : ''}
                     ${item.file_size ? ' | ' + escapeHtml(item.file_size) : ''}
                     ${item.visibility != null ? ` | 可见性: <select class="visibility-select" onchange="updateVisibility('${item.novel_id}', parseInt(this.value), this)" style="font-size:12px;padding:1px 4px;border-radius:4px;border:1px solid #ccc;cursor:pointer;">
-                        <option value="0"${item.visibility === 0 ? ' selected' : ''}>0 (公开)</option>
+                        <option value="0"${item.visibility === 0 ? ' selected' : ''}>0</option>
                         <option value="1"${item.visibility === 1 ? ' selected' : ''}>1</option>
                         <option value="2"${item.visibility === 2 ? ' selected' : ''}>2</option>
-                        <option value="3"${item.visibility === 3 ? ' selected' : ''}>3 (隐藏)</option>
+                        <option value="3"${item.visibility === 3 ? ' selected' : ''}>3 (所有人可见)</option>
                     </select>` : ''}
                 </div>
                 ${item.description ? `<div class="import-card-desc" title="${escapeHtml(item.description)}">简介: ${escapeHtml(item.description)}</div>` : ''}
@@ -1817,6 +1817,55 @@ async function retryImport(importId, btn) {
             btn.textContent = '重试';
         }
     }
+}
+
+async function retryAllFailedImports(btn) {
+    const failedItems = (importsState.allItems || []).filter(item => item.status === 'error');
+    if (failedItems.length === 0) {
+        showStatus('没有失败的任务', 'info');
+        return;
+    }
+    if (!confirm(`将重试 ${failedItems.length} 个失败任务，是否继续？`)) return;
+
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = `重试中 0/${failedItems.length}`;
+    }
+
+    let done = 0;
+    let success = 0;
+    let failed = 0;
+    const concurrency = 4;
+    const queue = failedItems.slice();
+
+    async function worker() {
+        while (queue.length > 0) {
+            const item = queue.shift();
+            try {
+                const resp = await fetch(`./novel/imports/${item.novel_id}/retry`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                success++;
+            } catch (e) {
+                failed++;
+            } finally {
+                done++;
+                if (btn) btn.textContent = `重试中 ${done}/${failedItems.length}`;
+            }
+        }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(concurrency, failedItems.length) }, worker));
+
+    showStatus(`重试完成：成功 ${success}，失败 ${failed}`, failed === 0 ? 'success' : 'error');
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalText || '一键重试失败';
+    }
+    loadImportsList(importsState.currentPage);
 }
 
 async function pauseImport(importId, btn) {
