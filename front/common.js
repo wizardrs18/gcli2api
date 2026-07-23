@@ -1390,8 +1390,28 @@ const importsState = {
     pageSize: 20,
     allItems: [],
     currentFilter: '',
-    visibilityFilter: ''
+    visibilityFilter: '',
+    bigVis1Filter: false
 };
+
+// 1M = 1024 * 1024 bytes
+const IMPORT_BIG_FILE_BYTES = 1024 * 1024;
+
+// Parse a file_size value (e.g. "1.2M", "800K", "1.5 MB", or raw bytes) into bytes.
+function parseFileSizeToBytes(sizeStr) {
+    if (sizeStr == null) return 0;
+    if (typeof sizeStr === 'number') return isNaN(sizeStr) ? 0 : sizeStr;
+    const s = String(sizeStr).trim();
+    const m = s.match(/^([\d.]+)\s*([KMGT]?)B?$/i);
+    if (!m) {
+        const n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+    }
+    const val = parseFloat(m[1]);
+    if (isNaN(val)) return 0;
+    const mult = { '': 1, K: 1024, M: 1024 * 1024, G: 1024 * 1024 * 1024, T: 1024 * 1024 * 1024 * 1024 }[(m[2] || '').toUpperCase()];
+    return val * mult;
+}
 
 const IMPORT_STATUS_LABELS = {
     parsing: '解析中',
@@ -1435,6 +1455,8 @@ async function loadImportsList(page) {
         if (filterEl) importsState.currentFilter = filterEl.value;
         const visFilterEl = document.getElementById('importsVisibilityFilter');
         if (visFilterEl) importsState.visibilityFilter = visFilterEl.value;
+        const bigVis1El = document.getElementById('importsBigVis1Filter');
+        if (bigVis1El) importsState.bigVis1Filter = bigVis1El.checked;
 
         renderImportsList();
 
@@ -1465,7 +1487,23 @@ function renderImportsList() {
         items = items.filter(item => item.status === importsState.currentFilter);
     }
     if (importsState.visibilityFilter) {
-        items = items.filter(item => String(item.visibility) === importsState.visibilityFilter);
+        console.log('[visFilter] selected=', JSON.stringify(importsState.visibilityFilter),
+            'sample item.visibility values=',
+            items.slice(0, 5).map(i => ({ id: i.novel_id, v: i.visibility, type: typeof i.visibility })));
+        if (importsState.visibilityFilter === 'unset') {
+            items = items.filter(item => item.visibility == null);
+        } else {
+            items = items.filter(item => String(item.visibility) === importsState.visibilityFilter);
+        }
+        console.log('[visFilter] matched count=', items.length);
+    }
+    // 只显示 已完成 且 文件 ≥1M 且 可见性=1 的作品
+    if (importsState.bigVis1Filter) {
+        items = items.filter(item =>
+            item.status === 'completed' &&
+            parseFileSizeToBytes(item.file_size) >= IMPORT_BIG_FILE_BYTES &&
+            Number(item.visibility) === 1
+        );
     }
 
     const totalPages = Math.max(1, Math.ceil(items.length / importsState.pageSize));
@@ -1567,7 +1605,8 @@ function renderImportCard(item) {
                     ${item.author ? '作者: ' + escapeHtml(item.author) : ''}
                     ${item.genre ? ' | 类型: ' + escapeHtml(item.genre) : ''}
                     ${item.file_size ? ' | ' + escapeHtml(item.file_size) : ''}
-                    ${item.visibility != null ? ` | 可见性: <select class="visibility-select" onchange="updateVisibility('${item.novel_id}', parseInt(this.value), this)" style="font-size:12px;padding:1px 4px;border-radius:4px;border:1px solid #ccc;cursor:pointer;">
+                    ${item.novel_id ? ` | 可见性: <select class="visibility-select" onchange="updateVisibility('${item.novel_id}', parseInt(this.value), this)" style="font-size:12px;padding:1px 4px;border-radius:4px;border:1px solid #ccc;cursor:pointer;">
+                        ${item.visibility == null ? '<option value="" selected disabled>(未设置)</option>' : ''}
                         <option value="0"${item.visibility === 0 ? ' selected' : ''}>0</option>
                         <option value="1"${item.visibility === 1 ? ' selected' : ''}>1</option>
                         <option value="2"${item.visibility === 2 ? ' selected' : ''}>2</option>
@@ -1608,6 +1647,12 @@ function filterImports(status) {
 
 function filterImportsByVisibility(value) {
     importsState.visibilityFilter = value;
+    importsState.currentPage = 1;
+    renderImportsList();
+}
+
+function filterImportsByBigVis1(checked) {
+    importsState.bigVis1Filter = !!checked;
     importsState.currentPage = 1;
     renderImportsList();
 }
