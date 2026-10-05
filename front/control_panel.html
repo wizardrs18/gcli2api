@@ -2636,7 +2636,12 @@
                     <div>
                         <h3>导入任务管理</h3>
                     </div>
-                    <div style="display:flex;gap:10px;align-items:center;">
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+                        <input id="importsTitleFilter" class="filter-select" type="search" placeholder="按标题搜索"
+                               aria-label="按标题搜索" autocomplete="off"
+                               oninput="filterImportsByTitle(this.value)"
+                               onkeydown="if(event.key==='Enter'){event.preventDefault();filterImportsByTitle(this.value,true)}"
+                               style="width:180px;">
                         <select id="importsStatusFilter" class="filter-select" onchange="filterImports(this.value)">
                             <option value="">全部状态</option>
                             <option value="parsing">解析中</option>
@@ -2734,7 +2739,7 @@
     </div>
 
     <!-- 引入公共JavaScript模块 -->
-    <script src="./front/common.js"></script>
+    <script src="./front/common.js?v=20260903-import-search-2"></script>
 
 </body>
 

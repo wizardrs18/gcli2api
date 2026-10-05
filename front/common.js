@@ -1391,27 +1391,11 @@ const importsState = {
     allItems: [],
     currentFilter: '',
     visibilityFilter: '',
-    bigVis1Filter: false
+    bigVis1Filter: false,
+    titleFilter: '',
+    titleSearchTimer: null,
+    loadRequestId: 0
 };
-
-// 1M = 1024 * 1024 bytes
-const IMPORT_BIG_FILE_BYTES = 1024 * 1024;
-
-// Parse a file_size value (e.g. "1.2M", "800K", "1.5 MB", or raw bytes) into bytes.
-function parseFileSizeToBytes(sizeStr) {
-    if (sizeStr == null) return 0;
-    if (typeof sizeStr === 'number') return isNaN(sizeStr) ? 0 : sizeStr;
-    const s = String(sizeStr).trim();
-    const m = s.match(/^([\d.]+)\s*([KMGT]?)B?$/i);
-    if (!m) {
-        const n = parseFloat(s);
-        return isNaN(n) ? 0 : n;
-    }
-    const val = parseFloat(m[1]);
-    if (isNaN(val)) return 0;
-    const mult = { '': 1, K: 1024, M: 1024 * 1024, G: 1024 * 1024 * 1024, T: 1024 * 1024 * 1024 * 1024 }[(m[2] || '').toUpperCase()];
-    return val * mult;
-}
 
 const IMPORT_STATUS_LABELS = {
     parsing: '解析中',
@@ -1421,9 +1405,11 @@ const IMPORT_STATUS_LABELS = {
     completed: '已完成'
 };
 
-async function loadImportsList(page) {
+async function loadImportsList(page, forceAll) {
     if (page === undefined || page === null) page = importsState.currentPage || 1;
     if (page < 1) page = 1;
+    const fetchAll = Boolean(forceAll);
+    const requestId = ++importsState.loadRequestId;
 
     const loading = document.getElementById('importsLoading');
     const errorDiv = document.getElementById('importsError');
@@ -1436,8 +1422,16 @@ async function loadImportsList(page) {
     if (paginationDiv) paginationDiv.style.display = 'none';
 
     try {
-        // Backend now returns the full set; filtering and pagination are client-side.
-        const resp = await fetch(`./novel/imports`, {
+        const params = new URLSearchParams({
+            page: String(page),
+            page_size: String(importsState.pageSize)
+        });
+        if (fetchAll) params.set('fetch_all', 'true');
+        if (importsState.titleFilter) params.set('title', importsState.titleFilter);
+        if (importsState.currentFilter) params.set('status', importsState.currentFilter);
+        if (importsState.visibilityFilter) params.set('visibility', importsState.visibilityFilter);
+        if (importsState.bigVis1Filter) params.set('big_vis1', 'true');
+        const resp = await fetch(`./novel/imports?${params.toString()}`, {
             headers: getAuthHeaders()
         });
         const json = await resp.json();
@@ -1445,10 +1439,15 @@ async function loadImportsList(page) {
         if (!resp.ok || json.code !== 200) {
             throw new Error(json.message || json.detail || 'Failed to load imports');
         }
+        if (requestId !== importsState.loadRequestId) return false;
 
         const data = json.data;
         importsState.allItems = data.items || [];
-        importsState.currentPage = page;
+        importsState.currentPage = Number(data.page) || page;
+        if (!fetchAll) {
+            const responsePageSize = Number(data.pageSize || data.page_size) || importsState.pageSize;
+            importsState.totalPages = Math.max(1, Math.ceil((Number(data.total) || 0) / responsePageSize));
+        }
 
         // Restore filter selection
         const filterEl = document.getElementById('importsStatusFilter');
@@ -1457,23 +1456,26 @@ async function loadImportsList(page) {
         if (visFilterEl) importsState.visibilityFilter = visFilterEl.value;
         const bigVis1El = document.getElementById('importsBigVis1Filter');
         if (bigVis1El) importsState.bigVis1Filter = bigVis1El.checked;
+        const titleFilterEl = document.getElementById('importsTitleFilter');
+        if (titleFilterEl) importsState.titleFilter = titleFilterEl.value.trim().toLocaleLowerCase();
 
         renderImportsList();
+        return true;
 
     } catch (err) {
-        if (errorDiv) {
+        if (requestId === importsState.loadRequestId && errorDiv) {
             errorDiv.innerHTML = `<div class="dashboard-error">${err.message}</div>`;
             errorDiv.style.display = 'block';
         }
+        return false;
     } finally {
-        if (loading) loading.style.display = 'none';
+        if (requestId === importsState.loadRequestId && loading) loading.style.display = 'none';
     }
 }
 
 function goToImportsPage(page) {
     if (!page || page < 1) page = 1;
-    importsState.currentPage = page;
-    renderImportsList();
+    loadImportsList(page);
 }
 
 function renderImportsList() {
@@ -1481,38 +1483,15 @@ function renderImportsList() {
     const paginationDiv = document.getElementById('importsPagination');
     if (!listDiv) return;
 
-    // Filter first, then paginate the filtered subset.
+    // The server applies filters to the full dataset and returns one page.
     let items = importsState.allItems;
-    if (importsState.currentFilter) {
-        items = items.filter(item => item.status === importsState.currentFilter);
-    }
-    if (importsState.visibilityFilter) {
-        console.log('[visFilter] selected=', JSON.stringify(importsState.visibilityFilter),
-            'sample item.visibility values=',
-            items.slice(0, 5).map(i => ({ id: i.novel_id, v: i.visibility, type: typeof i.visibility })));
-        if (importsState.visibilityFilter === 'unset') {
-            items = items.filter(item => item.visibility == null);
-        } else {
-            items = items.filter(item => String(item.visibility) === importsState.visibilityFilter);
-        }
-        console.log('[visFilter] matched count=', items.length);
-    }
-    // 只显示 已完成 且 文件 ≥1M 且 可见性=1 的作品
-    if (importsState.bigVis1Filter) {
-        items = items.filter(item =>
-            item.status === 'completed' &&
-            parseFileSizeToBytes(item.file_size) >= IMPORT_BIG_FILE_BYTES &&
-            Number(item.visibility) === 1
-        );
-    }
 
-    const totalPages = Math.max(1, Math.ceil(items.length / importsState.pageSize));
+    const totalPages = importsState.totalPages;
     if (importsState.currentPage > totalPages) importsState.currentPage = totalPages;
     if (importsState.currentPage < 1) importsState.currentPage = 1;
     importsState.totalPages = totalPages;
 
-    const start = (importsState.currentPage - 1) * importsState.pageSize;
-    const pagedItems = items.slice(start, start + importsState.pageSize);
+    const pagedItems = items;
 
     if (pagedItems.length === 0) {
         listDiv.innerHTML = '<div class="imports-empty">暂无导入任务</div>';
@@ -1642,19 +1621,34 @@ function escapeHtml(str) {
 function filterImports(status) {
     importsState.currentFilter = status;
     importsState.currentPage = 1;
-    renderImportsList();
+    applyImportsFilters();
 }
 
 function filterImportsByVisibility(value) {
     importsState.visibilityFilter = value;
     importsState.currentPage = 1;
-    renderImportsList();
+    applyImportsFilters();
 }
 
 function filterImportsByBigVis1(checked) {
     importsState.bigVis1Filter = !!checked;
     importsState.currentPage = 1;
-    renderImportsList();
+    applyImportsFilters();
+}
+
+function filterImportsByTitle(value, immediate) {
+    importsState.titleFilter = String(value || '').trim().toLocaleLowerCase();
+    importsState.currentPage = 1;
+    clearTimeout(importsState.titleSearchTimer);
+    if (immediate) {
+        applyImportsFilters();
+        return;
+    }
+    importsState.titleSearchTimer = setTimeout(applyImportsFilters, 300);
+}
+
+function applyImportsFilters() {
+    loadImportsList(1, false);
 }
 
 async function updateVisibility(novelId, visibility, selectEl) {
@@ -1865,7 +1859,26 @@ async function retryImport(importId, btn) {
 }
 
 async function retryAllFailedImports(btn) {
-    const failedItems = (importsState.allItems || []).filter(item => item.status === 'error');
+    let failedItems;
+    try {
+        const params = new URLSearchParams({
+            page: '1',
+            page_size: String(importsState.pageSize),
+            fetch_all: 'true',
+            status: 'error'
+        });
+        const resp = await fetch(`./novel/imports?${params.toString()}`, {
+            headers: getAuthHeaders()
+        });
+        const json = await resp.json();
+        if (!resp.ok || json.code !== 200) {
+            throw new Error(json.message || json.detail || '加载失败任务失败');
+        }
+        failedItems = (json.data && json.data.items) || [];
+    } catch (err) {
+        showStatus(`加载失败任务失败: ${err.message}`, 'error');
+        return;
+    }
     if (failedItems.length === 0) {
         showStatus('没有失败的任务', 'info');
         return;

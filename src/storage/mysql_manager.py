@@ -65,6 +65,8 @@ class MySQLManager:
                     autocommit=True,
                     minsize=1,
                     maxsize=5,
+                    connect_timeout=10,
+                    pool_recycle=300,
                 )
 
                 # Test connection

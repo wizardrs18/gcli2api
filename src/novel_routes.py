@@ -1,11 +1,16 @@
 """Novel management routes - forwards requests to novel_backend admin API"""
 
+import asyncio
 import json
+import math
 import os
 import re
 import uuid
 
+import aiomysql
+import httpx
 from fastapi import APIRouter, Depends, Path, Query, Request, UploadFile, File
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from config import get_novel_backend_url, get_novel_admin_api_key
@@ -17,56 +22,251 @@ from src.utils import verify_panel_token
 router = APIRouter(prefix="/novel")
 
 
+async def _list_imports_from_mysql(
+    pool,
+    page: int,
+    page_size: int,
+    title: str,
+    status: str,
+    visibility: str,
+    big_vis1: bool,
+    fetch_all: bool,
+):
+    """Query and paginate imports in MySQL so filters apply to the entire dataset."""
+    where_parts = []
+    params = []
+
+    if title:
+        where_parts.append("i.title LIKE %s")
+        params.append(f"%{title}%")
+    if status:
+        where_parts.append("i.status = %s")
+        params.append(status)
+    if visibility:
+        if visibility == "unset":
+            where_parts.append("n.visibility IS NULL")
+        elif visibility in {"0", "1", "2", "3"}:
+            where_parts.append("n.visibility = %s")
+            params.append(int(visibility))
+        else:
+            return JSONResponse(content={"detail": "无效的可见性筛选值"}, status_code=400)
+    if big_vis1:
+        where_parts.extend(
+            [
+                "i.status = 'completed'",
+                "n.visibility = 1",
+                "(COALESCE(CAST(REGEXP_SUBSTR(TRIM(i.file_size), "
+                "'^[0-9]+([.][0-9]+)?') AS DECIMAL(20, 4)), 0) * CASE "
+                "WHEN UPPER(TRIM(i.file_size)) LIKE '%%TB' THEN 1099511627776 "
+                "WHEN UPPER(TRIM(i.file_size)) LIKE '%%GB' THEN 1073741824 "
+                "WHEN UPPER(TRIM(i.file_size)) LIKE '%%MB' THEN 1048576 "
+                "WHEN UPPER(TRIM(i.file_size)) LIKE '%%KB' THEN 1024 "
+                "WHEN UPPER(TRIM(i.file_size)) LIKE '%%T' THEN 1099511627776 "
+                "WHEN UPPER(TRIM(i.file_size)) LIKE '%%G' THEN 1073741824 "
+                "WHEN UPPER(TRIM(i.file_size)) LIKE '%%M' THEN 1048576 "
+                "WHEN UPPER(TRIM(i.file_size)) LIKE '%%K' THEN 1024 "
+                "ELSE 1 END) >= 1048576",
+            ]
+        )
+
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    limit_sql = "" if fetch_all else "LIMIT %s OFFSET %s"
+    query_params = list(params)
+    if not fetch_all:
+        query_params.extend([page_size, (page - 1) * page_size])
+
+    query = f"""
+        SELECT
+            i.novel_id, i.title, i.author, i.genre, i.status, i.file_size,
+            i.error_message, i.created_at, i.updated_at, i.completed_at,
+            i.total_plot, i.parser_plot, i.processed_plot, i.ds_cost, i.use_agentic,
+            COALESCE(n.cover_url, i.cover_url) AS cover_url,
+            COALESCE(n.description, i.description) AS description,
+            n.visibility,
+            COUNT(*) OVER() AS _filtered_total
+        FROM import_novels AS i
+        LEFT JOIN novels AS n ON n.id = i.novel_id
+        {where_sql}
+        ORDER BY i.created_at DESC
+        {limit_sql}
+    """
+
+    rows = None
+    for attempt in range(3):
+        conn = None
+        try:
+            async with pool.acquire() as conn:
+                async with conn.cursor(aiomysql.DictCursor) as cur:
+                    await asyncio.wait_for(cur.execute(query, query_params), timeout=8.0)
+                    rows = await asyncio.wait_for(cur.fetchall(), timeout=8.0)
+            break
+        except (aiomysql.OperationalError, asyncio.TimeoutError) as exc:
+            # A trans-Pacific RDS connection can occasionally become unusable.
+            # Close it so the pool creates a fresh connection for the retry.
+            if conn is not None and not conn.closed:
+                conn.close()
+            if attempt == 2:
+                raise
+            log.warning(
+                f"Import list MySQL attempt {attempt + 1} failed: "
+                f"{type(exc).__name__}: {exc!r}; retrying with a new connection"
+            )
+            await asyncio.sleep(0.25 * (attempt + 1))
+
+    if rows is None:
+        raise RuntimeError("Import list query returned no result")
+
+    items = []
+    total = int(rows[0]["_filtered_total"]) if rows else 0
+    for row in rows:
+        item = dict(row)
+        item.pop("_filtered_total", None)
+        items.append(item)
+
+    return JSONResponse(
+        content=jsonable_encoder(
+            {
+                "code": 200,
+                "data": {
+                    "items": items,
+                    "total": total,
+                    "page": 1 if fetch_all else page,
+                    "pageSize": len(items) if fetch_all else page_size,
+                },
+            }
+        )
+    )
+
+
 @router.get("/imports")
 async def list_imports(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    fetch_all: bool = Query(False),
+    title: str = Query("", max_length=200),
+    status: str = Query("", max_length=50),
+    visibility: str = Query("", max_length=20),
+    big_vis1: bool = Query(False),
     _token: str = Depends(verify_panel_token),
 ):
     """Forward import list request to novel_backend admin API, enrich with novels data.
 
-    Aggregates all upstream pages into a single response so the caller can
-    filter then paginate client-side. The page/page_size params are accepted
-    for backward compatibility but the response always contains the full set.
+    MySQL filters before pagination. The upstream API only supports pagination,
+    so the fallback collects all pages before applying title/status filters.
     """
     backend_url = await get_novel_backend_url()
     admin_key = await get_novel_admin_api_key()
     headers = {"X-Admin-Key": admin_key}
+    title = title.strip()
+
+    if visibility and visibility not in {"unset", "0", "1", "2", "3"}:
+        return JSONResponse(content={"detail": "无效的可见性筛选值"}, status_code=400)
 
     try:
-        chunk = 100
-        all_items: list = []
-        cur_page = 1
-        total = 0
-        last_resp_status = 200
-        last_resp_json: dict = {}
-        while True:
-            url = f"{backend_url}/api/v1/admin/import?page={cur_page}&page_size={chunk}"
-            resp = await get_async(url, headers=headers)
-            last_resp_status = resp.status_code
-            last_resp_json = resp.json() if resp.content else {}
-            if last_resp_status != 200:
-                return JSONResponse(content=last_resp_json, status_code=last_resp_status)
-            data = (last_resp_json or {}).get("data") or {}
-            items = data.get("items") or []
-            total = data.get("total") or 0
-            all_items.extend(items)
-            if not items or len(items) < chunk or len(all_items) >= total or cur_page >= 200:
-                break
-            cur_page += 1
+        adapter = await get_storage_adapter()
+        if adapter.get_backend_type() == "mysql":
+            pool = adapter._backend._pool
+            if pool:
+                return await _list_imports_from_mysql(
+                    pool,
+                    page,
+                    page_size,
+                    title,
+                    status,
+                    visibility,
+                    big_vis1,
+                    fetch_all,
+                )
 
-        result = dict(last_resp_json) if isinstance(last_resp_json, dict) else {"code": 200}
-        result["data"] = {
-            "items": all_items,
-            "total": total or len(all_items),
-            "page": 1,
-            "pageSize": len(all_items),
-        }
+        # Upstream import items have no visibility field. Never silently ignore
+        # these filters (or mistake unavailable visibility for an unset value).
+        if visibility or big_vis1:
+            return JSONResponse(
+                content={"detail": "MySQL 连接不可用，暂时无法按可见性筛选"},
+                status_code=503,
+            )
+
+        fetch_full_set = fetch_all or bool(title or status)
+        request_page = 1 if fetch_full_set else page
+        request_page_size = 100 if fetch_full_set else page_size
+
+        async with http_client.get_client(timeout=15.0) as client:
+            semaphore = asyncio.Semaphore(4)
+
+            async def fetch_page(page_number: int):
+                last_error = None
+                for attempt in range(3):
+                    try:
+                        async with semaphore:
+                            response = await client.get(
+                                f"{backend_url}/api/v1/admin/import",
+                                params={"page": page_number, "page_size": request_page_size},
+                                headers=headers,
+                                timeout=10.0,
+                            )
+                        payload = response.json() if response.content else {}
+                        if response.status_code < 500 or attempt == 2:
+                            return page_number, response.status_code, payload
+                    except httpx.RequestError as exc:
+                        last_error = exc
+                        if attempt == 2:
+                            log.error(
+                                f"Import page {page_number} failed after retries: "
+                                f"{type(exc).__name__}: {exc!r}"
+                            )
+                            raise
+                    await asyncio.sleep(0.3 * (2**attempt))
+
+                raise last_error or RuntimeError(f"Failed to fetch import page {page_number}")
+
+            _, first_status, result = await fetch_page(request_page)
+            if first_status != 200:
+                return JSONResponse(content=result, status_code=first_status)
+
+            if fetch_full_set:
+                first_data = (result or {}).get("data") or {}
+                first_items = first_data.get("items") or []
+                try:
+                    total = int(first_data.get("total") or len(first_items))
+                except (TypeError, ValueError):
+                    total = len(first_items)
+                page_count = math.ceil(total / request_page_size)
+                remaining = await asyncio.gather(
+                    *(fetch_page(page_number) for page_number in range(2, page_count + 1))
+                )
+                all_items = list(first_items)
+                for _, status_code, payload in sorted(remaining):
+                    if status_code != 200:
+                        return JSONResponse(content=payload, status_code=status_code)
+                    all_items.extend(((payload or {}).get("data") or {}).get("items") or [])
+
+                if status:
+                    all_items = [item for item in all_items if item.get("status") == status]
+                if title:
+                    search_title = title.casefold()
+                    all_items = [
+                        item for item in all_items
+                        if search_title in str(item.get("title") or "").casefold()
+                    ]
+                total = len(all_items)
+                if not fetch_all:
+                    start = (page - 1) * page_size
+                    all_items = all_items[start:start + page_size]
+
+                result = dict(result) if isinstance(result, dict) else {"code": 200}
+                result["data"] = {
+                    "items": all_items,
+                    "total": total,
+                    "page": 1 if fetch_all else page,
+                    "pageSize": len(all_items) if fetch_all else page_size,
+                }
 
         # Enrich items with visibility, cover_url and description from novels table
         try:
             items = result.get("data", {}).get("items", [])
-            novel_ids = [item["novel_id"] for item in items if item.get("novel_id")]
+            novel_ids = list(
+                dict.fromkeys(item["novel_id"] for item in items if item.get("novel_id"))
+            )
             if novel_ids:
                 adapter = await get_storage_adapter()
                 if adapter.get_backend_type() == "mysql":
@@ -75,40 +275,51 @@ async def list_imports(
                         placeholders = ",".join(["%s"] * len(novel_ids))
                         async with pool.acquire() as conn:
                             async with conn.cursor() as cur:
-                                await cur.execute(
-                                    f"SELECT id, visibility, cover_url FROM novels WHERE id IN ({placeholders})",
-                                    novel_ids,
-                                )
-                                rows = await cur.fetchall()
-                        novel_map = {row[0]: {"visibility": row[1], "cover_url": row[2]} for row in rows}
+                                try:
+                                    await cur.execute(
+                                        f"SELECT id, visibility, cover_url, description "
+                                        f"FROM novels WHERE id IN ({placeholders})",
+                                        novel_ids,
+                                    )
+                                    rows = await cur.fetchall()
+                                    novel_map = {
+                                        row[0]: {
+                                            "visibility": row[1],
+                                            "cover_url": row[2],
+                                            "description": row[3],
+                                        }
+                                        for row in rows
+                                    }
+                                except Exception as desc_err:
+                                    log.warning(
+                                        f"Failed to enrich imports with description: {desc_err}"
+                                    )
+                                    await cur.execute(
+                                        f"SELECT id, visibility, cover_url "
+                                        f"FROM novels WHERE id IN ({placeholders})",
+                                        novel_ids,
+                                    )
+                                    rows = await cur.fetchall()
+                                    novel_map = {
+                                        row[0]: {
+                                            "visibility": row[1],
+                                            "cover_url": row[2],
+                                        }
+                                        for row in rows
+                                    }
                         for item in items:
                             nid = item.get("novel_id")
                             if nid and nid in novel_map:
                                 item["visibility"] = novel_map[nid]["visibility"]
                                 item["cover_url"] = novel_map[nid]["cover_url"]
-
-                        # Best-effort description enrichment (column may not exist on all schemas)
-                        try:
-                            async with pool.acquire() as conn:
-                                async with conn.cursor() as cur:
-                                    await cur.execute(
-                                        f"SELECT id, description FROM novels WHERE id IN ({placeholders})",
-                                        novel_ids,
-                                    )
-                                    desc_rows = await cur.fetchall()
-                            desc_map = {r[0]: r[1] for r in desc_rows}
-                            for item in items:
-                                nid = item.get("novel_id")
-                                if nid and nid in desc_map:
-                                    item["description"] = desc_map[nid]
-                        except Exception as desc_err:
-                            log.warning(f"Failed to enrich imports with description: {desc_err}")
+                                if "description" in novel_map[nid]:
+                                    item["description"] = novel_map[nid]["description"]
         except Exception as e:
             log.warning(f"Failed to enrich imports with novel data: {e}")
 
-        return JSONResponse(content=result, status_code=last_resp_status)
+        return JSONResponse(content=result, status_code=first_status)
     except Exception as e:
-        log.error(f"Failed to forward list imports request: {e}")
+        log.error(f"Failed to forward list imports request: {type(e).__name__}: {e!r}")
         return JSONResponse(
             content={"detail": "Failed to connect to novel backend"},
             status_code=502,
